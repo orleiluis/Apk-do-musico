@@ -1,0 +1,10 @@
+# Testes do motor que rodam no computador (sem Android).
+cmake_minimum_required(VERSION 3.16)
+project(musico_engine_tests CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(SRC ${CMAKE_CURRENT_SOURCE_DIR}/../../main/cpp)
+add_executable(engine_tests engine_tests.cpp ${SRC}/metronome.cpp ${SRC}/wav_writer.cpp)
+target_include_directories(engine_tests PRIVATE ${SRC})
+target_compile_options(engine_tests PRIVATE -Wall -Wextra -Werror)
+enable_testing()
+add_test(NAME engine_tests COMMAND engine_tests)
