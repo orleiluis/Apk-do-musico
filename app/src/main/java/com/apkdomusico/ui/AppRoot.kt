@@ -16,7 +16,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import android.app.Activity
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.apkdomusico.browser.BrowserScreen
+import com.apkdomusico.browser.BrowserState
 import com.apkdomusico.multitrack.MultitrackScreen
 import com.apkdomusico.multitrack.MultitrackViewModel
 import com.apkdomusico.tabs.TabsScreen
@@ -27,6 +36,7 @@ private val Accent = Color(0xFFE0A030)
 private val Tabs = listOf(
     "≡" to "Estúdio",
     "♫" to "Tabs",
+    "▶" to "Aulas",
     "♩" to "Metrônomo",
     "●" to "Gravador",
 )
@@ -43,6 +53,20 @@ fun AppRoot() {
         val recorder: RecorderViewModel = viewModel()
         val studio: MultitrackViewModel = viewModel()
         val tabs: TabsViewModel = viewModel()
+        val activity = LocalContext.current as Activity
+        val browser = remember(activity) { BrowserState(activity) }
+        val lifecycle = LocalLifecycleOwner.current.lifecycle
+        DisposableEffect(lifecycle, browser) {
+            val observer = LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_PAUSE -> browser.onPause()
+                    Lifecycle.Event.ON_RESUME -> browser.onResume()
+                    else -> Unit
+                }
+            }
+            lifecycle.addObserver(observer)
+            onDispose { lifecycle.removeObserver(observer) }
+        }
         var tab by rememberSaveable { mutableIntStateOf(0) }
 
         Scaffold(
@@ -63,7 +87,8 @@ fun AppRoot() {
             when (tab) {
                 0 -> MultitrackScreen(studio, modifier)
                 1 -> TabsScreen(tabs, modifier)
-                2 -> MetronomeScreen(metronome, modifier)
+                2 -> BrowserScreen(browser, metronome, tabs, modifier)
+                3 -> MetronomeScreen(metronome, modifier)
                 else -> RecorderScreen(recorder, metronome, modifier)
             }
         }

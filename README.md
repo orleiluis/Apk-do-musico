@@ -4,10 +4,15 @@ App Android para músicos: metrônomo, gravador, multipista, tablaturas (Guitar 
 
 Plano completo: https://claude.ai/artifact/RBmWRELPHEGC6U6QhXAwqc
 
-## O que já funciona (Fase 1)
+## O que o app faz
 
-- **Metrônomo** de 30 a 300 BPM, compassos 2/4 a 7/8, subdivisões (colcheia, tercina, semicolcheia), acento no tempo 1, tap tempo e volume. O clique é gerado no motor C++ com precisão de amostra.
-- **Gravador** em WAV (mono, 16 bits, 48 kHz), com medidor de nível, metrônomo junto (com fone), e lista de gravações para ouvir, renomear, compartilhar e apagar.
+| Aba | Recursos |
+| --- | --- |
+| **Estúdio** | Projetos com até 8 pistas. Grava ouvindo as outras pistas e o clique, com compensação de latência. Importa MP3, M4A, FLAC, OGG e WAV. Move, corta, divide, duplica e apaga clipes; fades e ganho; volume, pan, mudo e solo; desfazer/refazer. Exporta a mixagem em WAV. |
+| **Tabs** | Abre Guitar Pro (.gp, .gp3, .gp4, .gp5, .gpx), MusicXML e Capella com [alphaTab](https://www.alphatab.net). Toca com cursor, repete trecho selecionado, velocidade de 25% a 150%, metrônomo, contagem, mudo/solo por instrumento. |
+| **Aulas** | Navegador para YouTube, Hotmart, Kiwify e qualquer site, com favoritos, vídeos com DRM e tela cheia. Modo estudo: vídeo em cima, metrônomo ou tablatura embaixo. Logins do Google abrem no navegador seguro do sistema. |
+| **Metrônomo** | 30 a 300 BPM, compassos 2/4 a 7/8, subdivisões, acento, tap tempo. Clique gerado no motor C++ com precisão de amostra. |
+| **Gravador** | Gravação rápida em WAV com medidor de nível, para ouvir, renomear, compartilhar ou levar para o Estúdio. |
 
 ## Como instalar no celular
 
@@ -19,7 +24,10 @@ Plano completo: https://claude.ai/artifact/RBmWRELPHEGC6U6QhXAwqc
 
 | Pasta | O que tem |
 | --- | --- |
-| `app/` | Telas em Jetpack Compose (metrônomo e gravador) |
+| `app/.../multitrack` | Estúdio multipista (modelo, edição, importação, telas) |
+| `app/.../tabs` + `assets/tabs` | Biblioteca e visualizador de tablaturas (alphaTab) |
+| `app/.../browser` | Navegador de aulas e modo estudo |
+| `app/.../ui` | Metrônomo, gravador e navegação |
 | `core/audio/` | Motor de áudio em C++ com Oboe e a ponte Kotlin (`NativeAudio`) |
 | `core/audio/src/test/cpp/` | Testes do motor que rodam no computador |
 
@@ -39,5 +47,12 @@ cmake -S core/audio/src/test/cpp -B build-tests && cmake --build build-tests && 
 
 ## Limitações conhecidas
 
-- A gravação acontece com o app aberto; gravar com a tela apagada fica para uma fase seguinte.
-- Sem fone, o clique do metrônomo é captado pelo microfone.
+- A gravação acontece com o app aberto; gravar com a tela apagada não é suportado.
+- Sem fone, o clique e as outras pistas são captados pelo microfone.
+- O áudio fica na memória ao editar: projetos muito longos com muitas pistas podem pesar em celulares com pouca RAM.
+- O navegador não baixa nem grava vídeos das aulas, e não toca vídeo com o app em segundo plano (termos do YouTube, Hotmart e Kiwify).
+
+## Licenças de terceiros
+
+- [Oboe](https://github.com/google/oboe) (Apache 2.0)
+- [alphaTab](https://github.com/CoderLine/alphaTab) (MPL 2.0), fonte Bravura (SIL OFL 1.1) e SoundFont Sonivox (Apache 2.0), em `app/src/main/assets/alphatab/`
