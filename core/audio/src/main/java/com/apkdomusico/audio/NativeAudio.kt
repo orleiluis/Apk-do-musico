@@ -29,4 +29,37 @@ object NativeAudio {
 
     /** Pico do microfone desde a última chamada, de 0 a 1. */
     external fun recordTakePeak(): Float
+
+    // ---------- Multipista ----------
+
+    external fun engineSampleRate(): Int
+
+    /** Carrega um WAV no motor (fica em cache). Devolve o tamanho em quadros a 48 kHz, ou -1. */
+    external fun sourceLoad(path: String): Long
+    external fun sourceForget(path: String)
+
+    /** Picos (0..1) para desenhar a forma de onda. */
+    external fun sourcePeaks(path: String, buckets: Int): FloatArray
+
+    external fun projectBegin()
+    external fun projectAddTrack(volume: Float, pan: Float, mute: Boolean, solo: Boolean)
+    external fun projectAddClip(
+        track: Int, path: String, start: Long, offset: Long, length: Long,
+        fadeIn: Long, fadeOut: Long, gain: Float,
+    ): Boolean
+    external fun projectCommit()
+
+    external fun transportPlay(fromFrame: Long, withClick: Boolean): Boolean
+    external fun transportStop()
+    external fun transportIsPlaying(): Boolean
+    external fun transportPosition(): Long
+
+    /** Renderiza o projeto publicado num WAV estéreo (sem metrônomo). Bloqueia: chame fora da thread principal. */
+    external fun exportMix(path: String, frames: Long): Boolean
+
+    /** Posição da linha do tempo quando o microfone começou a entregar áudio (-1 sem reprodução). */
+    external fun recordStartPosition(): Long
+
+    /** Latência de ida e volta estimada na última gravação, em quadros. */
+    external fun recordRoundTripLatency(): Long
 }

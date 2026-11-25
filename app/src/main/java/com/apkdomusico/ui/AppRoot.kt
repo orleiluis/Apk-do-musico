@@ -17,8 +17,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.apkdomusico.multitrack.MultitrackScreen
+import com.apkdomusico.multitrack.MultitrackViewModel
 
 private val Accent = Color(0xFFE0A030)
+
+private val Tabs = listOf(
+    "≡" to "Estúdio",
+    "♩" to "Metrônomo",
+    "●" to "Gravador",
+)
 
 @Composable
 fun AppRoot() {
@@ -30,29 +38,27 @@ fun AppRoot() {
     MaterialTheme(colorScheme = colors) {
         val metronome: MetronomeViewModel = viewModel()
         val recorder: RecorderViewModel = viewModel()
+        val studio: MultitrackViewModel = viewModel()
         var tab by rememberSaveable { mutableIntStateOf(0) }
 
         Scaffold(
             bottomBar = {
                 NavigationBar {
-                    NavigationBarItem(
-                        selected = tab == 0,
-                        onClick = { tab = 0 },
-                        icon = { Text("♩") },
-                        label = { Text("Metrônomo") },
-                    )
-                    NavigationBarItem(
-                        selected = tab == 1,
-                        onClick = { tab = 1 },
-                        icon = { Text("●") },
-                        label = { Text("Gravador") },
-                    )
+                    Tabs.forEachIndexed { index, (icon, label) ->
+                        NavigationBarItem(
+                            selected = tab == index,
+                            onClick = { tab = index },
+                            icon = { Text(icon) },
+                            label = { Text(label, maxLines = 1) },
+                        )
+                    }
                 }
             },
         ) { padding ->
             val modifier = Modifier.padding(padding)
             when (tab) {
-                0 -> MetronomeScreen(metronome, modifier)
+                0 -> MultitrackScreen(studio, modifier)
+                1 -> MetronomeScreen(metronome, modifier)
                 else -> RecorderScreen(recorder, metronome, modifier)
             }
         }
