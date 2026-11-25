@@ -33,7 +33,15 @@ void Metronome::setVolume(float volume) {
     volume_.store(std::clamp(volume, 0.0f, 1.0f), std::memory_order_relaxed);
 }
 
-void Metronome::start() { running_.store(true, std::memory_order_relaxed); }
+void Metronome::start() {
+    pendingAlign_.store(-1, std::memory_order_relaxed);
+    running_.store(true, std::memory_order_relaxed);
+}
+
+void Metronome::startAt(int64_t timelineFrame) {
+    pendingAlign_.store(timelineFrame < 0 ? 0 : timelineFrame, std::memory_order_relaxed);
+    running_.store(true, std::memory_order_relaxed);
+}
 
 void Metronome::stop() {
     running_.store(false, std::memory_order_relaxed);
@@ -84,6 +92,13 @@ void Metronome::render(float* out, int numFrames, int channels) {
     if (running && !wasRunning_) {
         framesUntilNextTick_ = 0.0;
         tickInBar_ = 0;
+    }
+    const int64_t align = pendingAlign_.exchange(-1, std::memory_order_relaxed);
+    if (running && align >= 0) {
+        const double fpt = framesPerTick();
+        const int64_t tick = static_cast<int64_t>(std::ceil(align / fpt - 1e-9));
+        framesUntilNextTick_ = tick * fpt - static_cast<double>(align);
+        tickInBar_ = static_cast<int>(tick % (beatsPerBar() * subdivision()));
     }
     wasRunning_ = running;
 

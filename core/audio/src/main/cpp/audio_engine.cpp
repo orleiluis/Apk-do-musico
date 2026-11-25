@@ -2,6 +2,7 @@
 
 #include <android/log.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -13,17 +14,21 @@
 namespace musico {
 
 namespace {
-constexpr int kSampleRate = 48000;
 constexpr size_t kRingCapacity = 1 << 18;  // ~5,4 s de áudio mono a 48 kHz
+constexpr int kMaxCallbackFrames = 8192;
 }  // namespace
 
-AudioEngine::AudioEngine() : ring_(kRingCapacity) {}
+AudioEngine::AudioEngine() : project_(std::make_shared<ProjectData>()), ring_(kRingCapacity) {
+    mixScratch_.resize(kMaxCallbackFrames * 2);
+}
 
 AudioEngine::~AudioEngine() {
     stopRecording();
     std::lock_guard<std::mutex> lock(mutex_);
     closeOutputLocked();
 }
+
+// ---------- Saída ----------
 
 bool AudioEngine::openOutputLocked() {
     if (output_) return true;
@@ -63,6 +68,141 @@ void AudioEngine::closeOutputLocked() {
     output_.reset();
 }
 
+void AudioEngine::closeOutputIfIdleLocked() {
+    if (!playing_.load() && !standaloneMetronome_) closeOutputLocked();
+}
+
+bool AudioEngine::startMetronome() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!openOutputLocked()) return false;
+    standaloneMetronome_ = true;
+    metronome_.start();
+    return true;
+}
+
+void AudioEngine::stopMetronome() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    standaloneMetronome_ = false;
+    if (!(playing_.load() && transportClick_.load())) metronome_.stop();
+    closeOutputIfIdleLocked();
+}
+
+// ---------- Projeto ----------
+
+std::shared_ptr<AudioBuffer> AudioEngine::sourceLocked(const std::string& path) {
+    auto it = sources_.find(path);
+    if (it != sources_.end()) return it->second;
+    WavData wav;
+    if (!readWav(path, wav)) {
+        LOGE("Não foi possível ler %s", path.c_str());
+        return nullptr;
+    }
+    auto buf = makeBuffer(wav, kSampleRate);
+    sources_[path] = buf;
+    return buf;
+}
+
+int64_t AudioEngine::loadSource(const std::string& path) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto buf = sourceLocked(path);
+    return buf ? buf->frames : -1;
+}
+
+std::vector<float> AudioEngine::peaks(const std::string& path, int buckets) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto buf = sourceLocked(path);
+    if (!buf) return {};
+    return computePeaks(*buf, buckets);
+}
+
+void AudioEngine::forgetSource(const std::string& path) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    sources_.erase(path);
+}
+
+void AudioEngine::beginProject() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    draft_ = std::make_shared<ProjectData>();
+}
+
+void AudioEngine::addTrack(float volume, float pan, bool mute, bool solo) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!draft_) draft_ = std::make_shared<ProjectData>();
+    TrackData t;
+    t.volume = volume;
+    t.pan = pan;
+    t.mute = mute;
+    t.solo = solo;
+    draft_->tracks.push_back(std::move(t));
+}
+
+bool AudioEngine::addClip(int track, const std::string& path, int64_t start, int64_t offset,
+                          int64_t length, int64_t fadeIn, int64_t fadeOut, float gain) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!draft_ || track < 0 || track >= static_cast<int>(draft_->tracks.size())) return false;
+    auto buf = sourceLocked(path);
+    if (!buf) return false;
+    ClipData c;
+    c.buffer = buf;
+    c.start = start;
+    c.offset = offset;
+    c.length = length;
+    c.fadeIn = fadeIn;
+    c.fadeOut = fadeOut;
+    c.gain = gain;
+    draft_->tracks[static_cast<size_t>(track)].clips.push_back(std::move(c));
+    return true;
+}
+
+void AudioEngine::commitProject() {
+    std::shared_ptr<const ProjectData> next;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        next = draft_ ? draft_ : std::make_shared<ProjectData>();
+        draft_.reset();
+    }
+    std::lock_guard<std::mutex> lock(projectMutex_);
+    project_ = next;
+}
+
+bool AudioEngine::play(int64_t fromFrame, bool withClick) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    playhead_.store(std::max<int64_t>(0, fromFrame));
+    transportClick_.store(withClick);
+    if (!openOutputLocked()) return false;
+    if (withClick) metronome_.startAt(playhead_.load());
+    playing_.store(true);
+    return true;
+}
+
+void AudioEngine::stopPlayback() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    playing_.store(false);
+    if (transportClick_.exchange(false) && !standaloneMetronome_) metronome_.stop();
+    closeOutputIfIdleLocked();
+}
+
+bool AudioEngine::exportMix(const std::string& path, int64_t totalFrames) {
+    std::shared_ptr<const ProjectData> project;
+    {
+        std::lock_guard<std::mutex> lock(projectMutex_);
+        project = project_;
+    }
+    WavWriter writer;
+    if (!writer.open(path, kSampleRate, 2)) return false;
+    std::vector<float> block(4096 * 2);
+    for (int64_t pos = 0; pos < totalFrames; pos += 4096) {
+        const int n = static_cast<int>(std::min<int64_t>(4096, totalFrames - pos));
+        std::fill(block.begin(), block.end(), 0.0f);
+        mixProject(*project, pos, block.data(), n);
+        writer.write(block.data(), static_cast<size_t>(n) * 2);
+    }
+    writer.close();
+    return true;
+}
+
+// ---------- Entrada ----------
+
 bool AudioEngine::openInputLocked() {
     if (input_) return true;
     oboe::AudioStreamBuilder builder;
@@ -93,19 +233,6 @@ void AudioEngine::closeInputLocked() {
     input_.reset();
 }
 
-bool AudioEngine::startMetronome() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!openOutputLocked()) return false;
-    metronome_.start();
-    return true;
-}
-
-void AudioEngine::stopMetronome() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    metronome_.stop();
-    closeOutputLocked();
-}
-
 bool AudioEngine::startRecording(const std::string& path) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (recording_.load()) return false;
@@ -120,6 +247,8 @@ bool AudioEngine::startRecording(const std::string& path) {
     framesCaptured_.store(0);
     dropped_.store(0);
     inputPeak_.store(0.0f);
+    recordStartPos_.store(-1);
+    firstInput_.store(true);
 
     writerRunning_.store(true);
     writer_ = std::thread(&AudioEngine::writerLoop, this);
@@ -139,6 +268,18 @@ bool AudioEngine::startRecording(const std::string& path) {
 int64_t AudioEngine::stopRecording() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!recording_.load()) return 0;
+
+    double latencyMs = 0.0;
+    if (input_) {
+        auto in = input_->calculateLatencyMillis();
+        if (in) latencyMs += in.value();
+    }
+    if (output_) {
+        auto out = output_->calculateLatencyMillis();
+        if (out) latencyMs += out.value();
+    }
+    roundTripLatency_.store(static_cast<int64_t>(latencyMs * kSampleRate / 1000.0));
+
     recording_.store(false);
     closeInputLocked();
     writerRunning_.store(false);
@@ -166,18 +307,47 @@ void AudioEngine::writerLoop() {
     }
 }
 
+// ---------- Callbacks ----------
+
 oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream* stream, void* audioData,
                                                    int32_t numFrames) {
     if (stream->getDirection() == oboe::Direction::Output) {
         const int channels = stream->getChannelCount();
         auto* out = static_cast<float*>(audioData);
         std::memset(out, 0, sizeof(float) * numFrames * channels);
+
+        if (playing_.load(std::memory_order_relaxed)) {
+            // Pega o projeto mais novo sem bloquear; se estiver ocupado, usa o anterior.
+            if (projectMutex_.try_lock()) {
+                audioProject_ = project_;
+                projectMutex_.unlock();
+            }
+            const int64_t pos = playhead_.load(std::memory_order_relaxed);
+            if (audioProject_ && numFrames <= kMaxCallbackFrames) {
+                float* mix = mixScratch_.data();
+                std::fill(mix, mix + numFrames * 2, 0.0f);
+                mixProject(*audioProject_, pos, mix, numFrames);
+                for (int i = 0; i < numFrames; ++i) {
+                    if (channels == 1) {
+                        out[i] = 0.5f * (mix[i * 2] + mix[i * 2 + 1]);
+                    } else {
+                        out[i * channels] = mix[i * 2];
+                        out[i * channels + 1] = mix[i * 2 + 1];
+                    }
+                }
+            }
+            playhead_.store(pos + numFrames, std::memory_order_relaxed);
+        }
         metronome_.render(out, numFrames, channels);
+        for (int i = 0; i < numFrames * channels; ++i) out[i] = std::clamp(out[i], -1.0f, 1.0f);
         return oboe::DataCallbackResult::Continue;
     }
 
     // Entrada (mono).
     if (!recording_.load(std::memory_order_relaxed)) return oboe::DataCallbackResult::Continue;
+    if (firstInput_.exchange(false)) {
+        recordStartPos_.store(playing_.load() ? playhead_.load() : -1);
+    }
     const auto* in = static_cast<const float*>(audioData);
     float peak = 0.0f;
     for (int32_t i = 0; i < numFrames; ++i) peak = std::fmax(peak, std::fabs(in[i]));
@@ -198,7 +368,7 @@ void AudioEngine::onErrorAfterClose(oboe::AudioStream* stream, oboe::Result erro
     std::lock_guard<std::mutex> lock(mutex_);
     if (stream->getDirection() == oboe::Direction::Output) {
         output_.reset();
-        if (metronome_.isRunning()) openOutputLocked();
+        if (playing_.load() || standaloneMetronome_) openOutputLocked();
     } else {
         input_.reset();
         if (recording_.load() && openInputLocked()) input_->requestStart();

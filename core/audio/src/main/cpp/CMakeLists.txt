@@ -6,6 +6,8 @@ find_package(oboe REQUIRED CONFIG)
 add_library(musico_audio SHARED
     metronome.cpp
     wav_writer.cpp
+    audio_buffer.cpp
+    mixer.cpp
     audio_engine.cpp
     jni_bridge.cpp
 )

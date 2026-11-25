@@ -5,7 +5,9 @@
 #include <string>
 #include <vector>
 
+#include "audio_buffer.h"
 #include "metronome.h"
+#include "mixer.h"
 #include "ring_buffer.h"
 #include "wav_writer.h"
 
@@ -163,6 +165,133 @@ static void testWavWriter() {
     std::remove(path.c_str());
 }
 
+
+static void testMetronomeStartAtAlignsToGrid() {
+    Metronome m;
+    m.setSampleRate(48000);
+    m.setBpm(120);  // 24000 quadros por tempo
+    m.startAt(30000);  // entre o tempo 1 (24000) e o tempo 2 (48000)
+    float one[2];
+    long firstTick = -1;
+    for (long i = 0; i < 48000 && firstTick < 0; ++i) {
+        one[0] = one[1] = 0;
+        m.render(one, 1, 2);
+        if (m.tickCount() == 1) firstTick = i;
+    }
+    CHECK(firstTick == 18000);  // 48000 - 30000
+    CHECK(m.currentBeat() == 2);  // tempo 3 do compasso (índice 2)
+}
+
+static std::shared_ptr<AudioBuffer> constBuffer(int64_t frames, float value, int channels = 1) {
+    WavData w;
+    w.sampleRate = 48000;
+    w.channels = channels;
+    w.samples.assign(static_cast<size_t>(frames * channels), value);
+    return makeBuffer(w, 48000);
+}
+
+static void testWavRoundTripAndResample() {
+    const std::string path = "test_rt.wav";
+    {
+        WavWriter w;
+        w.open(path, 44100, 2);
+        std::vector<float> s(44100 * 2);
+        for (int i = 0; i < 44100; ++i) {
+            s[i * 2] = 0.25f;
+            s[i * 2 + 1] = -0.5f;
+        }
+        w.write(s.data(), s.size());
+    }
+    WavData wav;
+    CHECK(readWav(path, wav));
+    CHECK(wav.sampleRate == 44100 && wav.channels == 2);
+    CHECK(wav.samples.size() == 88200);
+    auto buf = makeBuffer(wav, 48000);
+    CHECK(buf->channels == 2);
+    CHECK(buf->frames == 48000);  // 1 segundo continua 1 segundo
+    CHECK(std::fabs(buf->sample(1000, 0) - 0.25f) < 0.001f);
+    CHECK(std::fabs(buf->sample(1000, 1) + 0.5f) < 0.001f);
+    WavData bad;
+    CHECK(!readWav("nao_existe.wav", bad));
+    std::remove(path.c_str());
+}
+
+static void testMixerPanMuteSoloFades() {
+    ProjectData p;
+    TrackData t;
+    ClipData c;
+    c.buffer = constBuffer(1000, 0.5f);
+    c.start = 100;
+    c.length = 1000;
+    t.clips.push_back(c);
+    p.tracks.push_back(t);
+    CHECK(p.endFrame() == 1100);
+
+    std::vector<float> out(2000 * 2, 0.0f);
+    mixProject(p, 0, out.data(), 2000);
+    CHECK(out[0] == 0.0f);                              // antes do clipe
+    CHECK(std::fabs(out[500 * 2] - 0.5f) < 0.001f);     // pan no centro = ganho 1
+    CHECK(std::fabs(out[500 * 2 + 1] - 0.5f) < 0.001f);
+    CHECK(out[1200 * 2] == 0.0f);                       // depois do clipe
+
+    p.tracks[0].pan = -1.0f;
+    std::fill(out.begin(), out.end(), 0.0f);
+    mixProject(p, 0, out.data(), 2000);
+    CHECK(out[500 * 2 + 1] < 1e-4f);  // tudo à esquerda
+    CHECK(out[500 * 2] > 0.6f);
+
+    p.tracks[0].pan = 0.0f;
+    p.tracks[0].clips[0].fadeIn = 100;
+    p.tracks[0].clips[0].fadeOut = 100;
+    std::fill(out.begin(), out.end(), 0.0f);
+    mixProject(p, 0, out.data(), 2000);
+    CHECK(std::fabs(out[150 * 2] - 0.25f) < 0.01f);   // metade do fade de entrada
+    CHECK(std::fabs(out[1050 * 2] - 0.25f) < 0.01f);  // metade do fade de saída
+
+    // Segunda pista em solo: a primeira some.
+    TrackData t2;
+    ClipData c2;
+    c2.buffer = constBuffer(1000, 0.1f);
+    c2.length = 1000;
+    t2.clips.push_back(c2);
+    t2.solo = true;
+    p.tracks.push_back(t2);
+    std::fill(out.begin(), out.end(), 0.0f);
+    mixProject(p, 0, out.data(), 2000);
+    CHECK(std::fabs(out[500 * 2] - 0.1f) < 0.001f);
+
+    p.tracks[1].mute = true;
+    std::fill(out.begin(), out.end(), 0.0f);
+    mixProject(p, 0, out.data(), 2000);
+    CHECK(out[500 * 2] == 0.0f);  // solo mudo e a outra fora do solo
+}
+
+static void testMixerOffsetAndBlockBoundaries() {
+    WavData w;
+    w.sampleRate = 48000;
+    w.channels = 1;
+    for (int i = 0; i < 1000; ++i) w.samples.push_back(i / 1000.0f);
+    ProjectData p;
+    TrackData t;
+    ClipData c;
+    c.buffer = makeBuffer(w, 48000);
+    c.start = 0;
+    c.offset = 500;  // começa no meio do áudio
+    c.length = 400;
+    t.clips.push_back(c);
+    p.tracks.push_back(t);
+    std::vector<float> a(64 * 2, 0.0f);
+    mixProject(p, 10, a.data(), 64);  // bloco que não começa no zero
+    CHECK(std::fabs(a[0] - 0.510f) < 0.001f);
+}
+
+static void testPeaks() {
+    auto buf = constBuffer(1000, 0.5f);
+    auto pk = computePeaks(*buf, 10);
+    CHECK(pk.size() == 10);
+    CHECK(std::fabs(pk[3] - 0.5f) < 0.001f);
+}
+
 int main() {
     testTempoIsExact();
     testFractionalTempoDoesNotDrift();
@@ -171,6 +300,11 @@ int main() {
     testAccentIsLouder();
     testRingBuffer();
     testWavWriter();
+    testMetronomeStartAtAlignsToGrid();
+    testWavRoundTripAndResample();
+    testMixerPanMuteSoloFades();
+    testMixerOffsetAndBlockBoundaries();
+    testPeaks();
     if (failures == 0) std::printf("Todos os testes do motor passaram.\n");
     return failures == 0 ? 0 : 1;
 }

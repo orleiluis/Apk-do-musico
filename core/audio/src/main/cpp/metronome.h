@@ -24,6 +24,8 @@ public:
     int subdivision() const { return subdivision_.load(std::memory_order_relaxed); }
 
     void start();
+    // Começa alinhado à grade de tempos de uma linha do tempo que está em `timelineFrame`.
+    void startAt(int64_t timelineFrame);
     void stop();
     bool isRunning() const { return running_.load(std::memory_order_relaxed); }
 
@@ -49,6 +51,7 @@ private:
     std::atomic<int> currentBeat_{-1};
     std::atomic<int64_t> tickCount_{0};
     std::atomic<int> sampleRate_{48000};
+    std::atomic<int64_t> pendingAlign_{-1};
 
     // Estado da thread de áudio.
     bool wasRunning_ = false;
