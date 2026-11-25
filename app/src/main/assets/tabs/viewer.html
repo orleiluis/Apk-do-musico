@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Tablatura</title>
+<style>
+  :root { --bg:#fff; --fg:#1d1b16; --muted:#6b665c; --bar:#f3efe6; --accent:#b07010; --line:#ddd6c8; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#1b1a17; --fg:#ece6da; --muted:#a8a092; --bar:#26241f; --accent:#e0a030; --line:#3a372f; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); font-family: system-ui, sans-serif; }
+  body { display:flex; flex-direction:column; }
+  #bar { background:var(--bar); border-bottom:1px solid var(--line); padding:6px 8px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  button, select { font:inherit; font-size:14px; padding:7px 10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
+  button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button:disabled { opacity:.45; }
+  #play { min-width:64px; font-weight:600; }
+  #speedWrap { display:flex; align-items:center; gap:4px; font-size:13px; }
+  #speed { width:110px; }
+  #time { font-variant-numeric: tabular-nums; font-size:13px; color:var(--muted); margin-left:auto; }
+  #status { padding:6px 10px; font-size:13px; color:var(--muted); }
+  #status:empty { display:none; }
+  #viewport { flex:1; overflow:auto; position:relative; }
+  #score { background:#fff; min-height:100%; }
+  #tracks { display:none; position:absolute; z-index:10; right:8px; top:52px; background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:8px; max-height:70vh; overflow:auto; box-shadow:0 4px 14px rgba(0,0,0,.2); }
+  #tracks.open { display:block; }
+  .trk { display:flex; align-items:center; gap:6px; padding:4px 0; font-size:14px; }
+  .trk span { flex:1; min-width:120px; }
+  .trk button { padding:4px 9px; }
+  /* Cursor e seleção do alphaTab */
+  .at-cursor-bar { background: rgba(224,160,48,.15); }
+  .at-selection div { background: rgba(224,160,48,.3); }
+  .at-cursor-beat { background: rgba(176,112,16,.85); width: 3px; }
+  .at-highlight * { fill: #b07010; stroke: #b07010; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <button id="play" disabled>▶ Tocar</button>
+  <button id="stop" disabled>■</button>
+  <button id="loop" title="Repetir o trecho selecionado">🔁 Repetir</button>
+  <button id="clear" title="Tocar a música toda">Tudo</button>
+  <span id="speedWrap">Vel. <input id="speed" type="range" min="25" max="150" step="5" value="100"><b id="speedVal">100%</b></span>
+  <button id="metro">Metrônomo</button>
+  <button id="countin">Contagem</button>
+  <select id="trackSel" title="Instrumento exibido"></select>
+  <button id="mixer">Pistas</button>
+  <button id="zoomOut">A−</button>
+  <button id="zoomIn">A+</button>
+  <button id="layout">Linha</button>
+  <span id="time">0:00 / 0:00</span>
+</div>
+<div id="status">Carregando…</div>
+<div id="viewport">
+  <div id="tracks"></div>
+  <div id="score"></div>
+</div>
+<script src="/assets/alphatab/alphaTab.min.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const status = (t) => { $('status').textContent = t || ''; };
+  const params = new URLSearchParams(location.search);
+  const file = params.get('file');
+  const tex = params.get('tex');
+
+  let scale = 1.0;
+  const api = new alphaTab.AlphaTabApi($('score'), {
+    core: { fontDirectory: '/assets/alphatab/font/', engine: 'svg' },
+    display: { scale: scale, layoutMode: alphaTab.LayoutMode.Page },
+    player: {
+      playerMode: alphaTab.PlayerMode.EnabledSynthesizer,
+      enableCursor: true,
+      enableUserInteraction: true,
+      soundFont: '/assets/alphatab/soundfont/sonivox.sf2',
+      scrollElement: $('viewport'),
+    },
+  });
+  window.__api = api;
+
+  const fmt = (ms) => {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  };
+
+  api.error.on((e) => status('Não foi possível abrir: ' + (e && e.message ? e.message : e)));
+  api.soundFontLoad.on((e) => { if (e.total) status('Carregando sons… ' + Math.round(e.loaded / e.total * 100) + '%'); });
+  api.renderStarted.on(() => status('Desenhando…'));
+  api.renderFinished.on(() => status(''));
+  api.playerReady.on(() => { $('play').disabled = false; $('stop').disabled = false; status(''); });
+  api.playerStateChanged.on((e) => {
+    $('play').textContent = e.state === alphaTab.synth.PlayerState.Playing ? '⏸ Pausar' : '▶ Tocar';
+  });
+  api.playerPositionChanged.on((e) => { $('time').textContent = fmt(e.currentTime) + ' / ' + fmt(e.endTime); });
+
+  let tracksState = [];
+  api.scoreLoaded.on((score) => {
+    document.title = score.title || 'Tablatura';
+    const sel = $('trackSel');
+    sel.innerHTML = '';
+    score.tracks.forEach((t, i) => {
+      const o = document.createElement('option');
+      o.value = i;
+      o.textContent = (i + 1) + '. ' + (t.name || 'Pista');
+      sel.appendChild(o);
+    });
+    tracksState = score.tracks.map(() => ({ mute: false, solo: false }));
+    buildMixer(score);
+    if (window.Android && Android.onScoreLoaded) Android.onScoreLoaded(score.title || '', score.artist || '', score.tracks.length);
+  });
+
+  function buildMixer(score) {
+    const box = $('tracks');
+    box.innerHTML = '';
+    score.tracks.forEach((t, i) => {
+      const row = document.createElement('div');
+      row.className = 'trk';
+      const name = document.createElement('span');
+      name.textContent = (i + 1) + '. ' + (t.name || 'Pista');
+      const m = document.createElement('button');
+      m.textContent = 'Mudo';
+      m.onclick = () => { tracksState[i].mute = !tracksState[i].mute; m.classList.toggle('on', tracksState[i].mute); api.changeTrackMute([t], tracksState[i].mute); };
+      const s = document.createElement('button');
+      s.textContent = 'Solo';
+      s.onclick = () => { tracksState[i].solo = !tracksState[i].solo; s.classList.toggle('on', tracksState[i].solo); api.changeTrackSolo([t], tracksState[i].solo); };
+      row.append(name, m, s);
+      box.appendChild(row);
+    });
+  }
+
+  $('play').onclick = () => api.playPause();
+  $('stop').onclick = () => api.stop();
+  $('loop').onclick = () => { api.isLooping = !api.isLooping; $('loop').classList.toggle('on', api.isLooping); };
+  $('clear').onclick = () => {
+    api.playbackRange = null;
+    if (api.clearPlaybackRangeHighlight) api.clearPlaybackRangeHighlight();
+  };
+  $('speed').oninput = (e) => {
+    const v = Number(e.target.value);
+    api.playbackSpeed = v / 100;
+    $('speedVal').textContent = v + '%';
+  };
+  $('metro').onclick = () => { api.metronomeVolume = api.metronomeVolume > 0 ? 0 : 1; $('metro').classList.toggle('on', api.metronomeVolume > 0); };
+  $('countin').onclick = () => { api.countInVolume = api.countInVolume > 0 ? 0 : 1; $('countin').classList.toggle('on', api.countInVolume > 0); };
+  $('trackSel').onchange = (e) => { const t = api.score.tracks[Number(e.target.value)]; if (t) api.renderTracks([t]); };
+  $('mixer').onclick = () => $('tracks').classList.toggle('open');
+  const rescale = (d) => { scale = Math.min(2, Math.max(0.5, scale + d)); api.settings.display.scale = scale; api.updateSettings(); api.render(); };
+  $('zoomIn').onclick = () => rescale(0.1);
+  $('zoomOut').onclick = () => rescale(-0.1);
+  $('layout').onclick = () => {
+    const page = api.settings.display.layoutMode === alphaTab.LayoutMode.Page;
+    api.settings.display.layoutMode = page ? alphaTab.LayoutMode.Horizontal : alphaTab.LayoutMode.Page;
+    $('layout').textContent = page ? 'Página' : 'Linha';
+    api.updateSettings();
+    api.render();
+  };
+
+  if (tex) {
+    api.tex(tex);
+  } else if (file) {
+    status('Abrindo arquivo…');
+    fetch(file)
+      .then((r) => { if (!r.ok) throw new Error('arquivo não encontrado'); return r.arrayBuffer(); })
+      .then((buf) => api.load(new Uint8Array(buf)))
+      .catch((e) => status('Não foi possível abrir: ' + e.message));
+  } else {
+    status('Nenhum arquivo.');
+  }
+})();
+</script>
+</body>
+</html>

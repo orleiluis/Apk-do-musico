@@ -19,11 +19,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.apkdomusico.multitrack.MultitrackScreen
 import com.apkdomusico.multitrack.MultitrackViewModel
+import com.apkdomusico.tabs.TabsScreen
+import com.apkdomusico.tabs.TabsViewModel
 
 private val Accent = Color(0xFFE0A030)
 
 private val Tabs = listOf(
     "≡" to "Estúdio",
+    "♫" to "Tabs",
     "♩" to "Metrônomo",
     "●" to "Gravador",
 )
@@ -39,6 +42,7 @@ fun AppRoot() {
         val metronome: MetronomeViewModel = viewModel()
         val recorder: RecorderViewModel = viewModel()
         val studio: MultitrackViewModel = viewModel()
+        val tabs: TabsViewModel = viewModel()
         var tab by rememberSaveable { mutableIntStateOf(0) }
 
         Scaffold(
@@ -58,7 +62,8 @@ fun AppRoot() {
             val modifier = Modifier.padding(padding)
             when (tab) {
                 0 -> MultitrackScreen(studio, modifier)
-                1 -> MetronomeScreen(metronome, modifier)
+                1 -> TabsScreen(tabs, modifier)
+                2 -> MetronomeScreen(metronome, modifier)
                 else -> RecorderScreen(recorder, metronome, modifier)
             }
         }
