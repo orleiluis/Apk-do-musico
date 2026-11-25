@@ -100,10 +100,22 @@ private fun TabLibrary(vm: TabsViewModel, modifier: Modifier) {
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun TabViewer(vm: TabsViewModel, file: File, modifier: Modifier) {
     BackHandler { vm.opened = null }
+    Column(modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { vm.opened = null }) { Text("‹ Biblioteca") }
+            Text(file.nameWithoutExtension, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+        }
+        TabWebView(vm.folder, file, Modifier.fillMaxSize())
+    }
+}
+
+/** Visualizador alphaTab de um arquivo da biblioteca. Também usado no modo estudo do navegador. */
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun TabWebView(folder: File, file: File, modifier: Modifier = Modifier) {
     var webView by remember { mutableStateOf<WebView?>(null) }
     DisposableEffect(file) {
         onDispose {
@@ -111,19 +123,16 @@ private fun TabViewer(vm: TabsViewModel, file: File, modifier: Modifier) {
                 loadUrl("about:blank")
                 destroy()
             }
+            webView = null
         }
     }
-    Column(modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { vm.opened = null }) { Text("‹ Biblioteca") }
-            Text(file.nameWithoutExtension, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-        }
+    androidx.compose.runtime.key(file) {
         AndroidView(
-            modifier = Modifier.fillMaxSize(),
+            modifier = modifier,
             factory = { ctx ->
                 val loader = WebViewAssetLoader.Builder()
                     .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(ctx))
-                    .addPathHandler("/tabs/", WebViewAssetLoader.InternalStoragePathHandler(ctx, vm.folder))
+                    .addPathHandler("/tabs/", WebViewAssetLoader.InternalStoragePathHandler(ctx, folder))
                     .build()
                 WebView(ctx).apply {
                     settings.javaScriptEnabled = true
