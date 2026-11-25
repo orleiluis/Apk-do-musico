@@ -55,7 +55,7 @@ class BrowserState(private val activity: Activity) {
         private set
     private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
 
-    @SuppressLint("SetJavaScriptEnabled")
+    @get:SuppressLint("SetJavaScriptEnabled")
     val webView: WebView by lazy {
         WebView(activity).apply {
             settings.javaScriptEnabled = true
@@ -111,11 +111,11 @@ class BrowserState(private val activity: Activity) {
 
             webChromeClient = object : WebChromeClient() {
                 override fun onProgressChanged(view: WebView, newProgress: Int) {
-                    progress = newProgress
+                    this@BrowserState.progress = newProgress
                 }
 
                 override fun onReceivedTitle(view: WebView, t: String?) {
-                    title = t ?: ""
+                    this@BrowserState.title = t ?: ""
                 }
 
                 // Vídeos com DRM (Widevine), comuns em áreas de membros. Só esse recurso é liberado.
