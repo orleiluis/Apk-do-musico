@@ -28,7 +28,7 @@ data class Bookmark(val title: String, val url: String)
 val DefaultBookmarks = listOf(
     Bookmark("YouTube", "https://m.youtube.com"),
     Bookmark("Hotmart", "https://consumer.hotmart.com"),
-    Bookmark("Kiwify", "https://dashboard.kiwify.com.br/login"),
+    Bookmark("Kiwify", "https://dashboard.kiwify.com.br"),
     Bookmark("Google", "https://www.google.com"),
 )
 
@@ -53,6 +53,24 @@ class BrowserState(private val activity: Activity) {
         private set
     var fullscreenView by mutableStateOf<View?>(null)
         private set
+
+    /** Já abriu a aba Aulas alguma vez (o WebView existe e está carregado). */
+    var started by mutableStateOf(false)
+        private set
+
+    /** Onde a tela Aulas reservou espaço para a página, em pixels na tela. */
+    var contentBounds by mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
+
+    /** Mini player flutuante: o vídeo continua visível e tocando nas outras abas. */
+    var mini by mutableStateOf(false)
+
+    /** Janela aberta pela página (login em popup, por exemplo). */
+    var popup by mutableStateOf<WebView?>(null)
+        private set
+
+    /** A página terminou de carregar mas não mostrou nada. */
+    var blankSuspected by mutableStateOf(false)
+        private set
     private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
 
     @get:SuppressLint("SetJavaScriptEnabled")
@@ -65,9 +83,7 @@ class BrowserState(private val activity: Activity) {
             settings.useWideViewPort = true
             settings.builtInZoomControls = true
             settings.displayZoomControls = false
-            settings.setSupportMultipleWindows(false)
-            CookieManager.getInstance().setAcceptCookie(true)
-            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+            configure(this)
 
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -96,7 +112,14 @@ class BrowserState(private val activity: Activity) {
                 }
 
                 override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                    blankSuspected = false
                     updateNav(url)
+                }
+
+                override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
+                    // O processo da página caiu (falta de memória, por exemplo): recarrega em vez de fechar o app.
+                    blankSuspected = true
+                    return true
                 }
 
                 override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
@@ -106,6 +129,7 @@ class BrowserState(private val activity: Activity) {
                 override fun onPageFinished(view: WebView, url: String) {
                     updateNav(url)
                     CookieManager.getInstance().flush()
+                    checkBlankLater(view, url)
                 }
             }
 
@@ -133,9 +157,91 @@ class BrowserState(private val activity: Activity) {
                 override fun onHideCustomView() {
                     exitFullscreen()
                 }
+
+                // Páginas que abrem o login numa janela nova (popup): mostramos essa janela por cima,
+                // mantendo a ligação com a página que a abriu, para o login voltar para ela.
+                override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message): Boolean {
+                    val child = WebView(activity)
+                    configure(child)
+                    child.webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
+                            val scheme = request.url.scheme?.lowercase()
+                            return scheme != "http" && scheme != "https"
+                        }
+                    }
+                    child.webChromeClient = object : WebChromeClient() {
+                        override fun onCloseWindow(window: WebView) {
+                            closePopup()
+                        }
+                    }
+                    popup?.destroy()
+                    popup = child
+                    (resultMsg.obj as WebView.WebViewTransport).webView = child
+                    resultMsg.sendToTarget()
+                    return true
+                }
+
+                override fun onCloseWindow(window: WebView) {
+                    closePopup()
+                }
             }
             // Sem DownloadListener: o app não baixa vídeos nem arquivos das aulas.
         }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun configure(view: WebView) {
+        view.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            @Suppress("DEPRECATION")
+            databaseEnabled = true
+            mediaPlaybackRequiresUserGesture = true
+            loadWithOverviewMode = true
+            useWideViewPort = true
+            builtInZoomControls = true
+            displayZoomControls = false
+            javaScriptCanOpenWindowsAutomatically = true
+            setSupportMultipleWindows(true)
+            mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+        }
+        CookieManager.getInstance().setAcceptCookie(true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
+    }
+
+    fun closePopup() {
+        popup?.let {
+            (it.parent as? ViewGroup)?.removeView(it)
+            it.destroy()
+        }
+        popup = null
+        canGoBack = webView.canGoBack()
+    }
+
+    private fun checkBlankLater(view: WebView, finishedUrl: String) {
+        view.postDelayed({
+            if (view.url != finishedUrl) return@postDelayed
+            view.evaluateJavascript(
+                "(function(){var b=document.body;if(!b)return false;" +
+                    "if(b.innerText&&b.innerText.trim().length>0)return true;" +
+                    "return !!document.querySelector('video,iframe,img,canvas,svg,input');})()",
+            ) { result -> blankSuspected = result == "false" }
+        }, 5000)
+    }
+
+    /** Diz se algum vídeo ou áudio da página está tocando. */
+    fun checkPlaying(callback: (Boolean) -> Unit) {
+        if (!started) {
+            callback(false)
+            return
+        }
+        webView.evaluateJavascript(
+            "(function(){return Array.from(document.querySelectorAll('video,audio')).some(function(m){return !m.paused&&!m.ended;});})()",
+        ) { callback(it == "true") }
+    }
+
+    fun pauseMedia() {
+        webView.evaluateJavascript("document.querySelectorAll('video,audio').forEach(function(m){m.pause();});", null)
     }
 
     private fun updateNav(current: String) {
@@ -143,12 +249,6 @@ class BrowserState(private val activity: Activity) {
         canGoBack = webView.canGoBack()
         canGoForward = webView.canGoForward()
         if (current.startsWith("http")) prefs.edit().putString("ultimaUrl", current).apply()
-    }
-
-    /** Desanexa o WebView do pai anterior, para poder colocá-lo em outra tela. */
-    fun detachedWebView(): WebView {
-        (webView.parent as? ViewGroup)?.removeView(webView)
-        return webView
     }
 
     fun load(input: String) {
@@ -164,10 +264,13 @@ class BrowserState(private val activity: Activity) {
     }
 
     fun ensureLoaded() {
+        started = true
         if (webView.url == null) load(url.ifBlank { DefaultBookmarks.first().url })
     }
 
-    fun back() { if (webView.canGoBack()) webView.goBack() }
+    fun back() {
+        if (popup != null) closePopup() else if (webView.canGoBack()) webView.goBack()
+    }
     fun forward() { if (webView.canGoForward()) webView.goForward() }
     fun reload() = webView.reload()
 

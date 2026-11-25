@@ -102,7 +102,7 @@ static void testClampsAndSilenceWhenStopped() {
     m.setBpm(1000);
     CHECK(m.bpm() == Metronome::kMaxBpm);
     m.setSubdivision(9);
-    CHECK(m.subdivision() == 4);
+    CHECK(m.subdivision() == 8);
     std::vector<float> buf(960, 0.0f);
     m.render(buf.data(), 480, 2);
     for (float s : buf) CHECK(s == 0.0f);
@@ -292,6 +292,36 @@ static void testPeaks() {
     CHECK(std::fabs(pk[3] - 0.5f) < 0.001f);
 }
 
+static void testSubdivisionTicksAreAudibleAndCounted() {
+    Metronome m;
+    m.setSampleRate(48000);
+    m.setBpm(60);
+    m.setBeatsPerBar(2);
+    m.setSubdivision(4);  // 4 cliques por tempo, 12000 quadros entre eles
+    m.start();
+    std::vector<float> buf(48000, 0.0f);
+    std::vector<int> ticks;
+    int last = -2;
+    for (int i = 0; i < 48000; ++i) {
+        m.render(&buf[i], 1, 1);
+        if (m.currentTick() != last) {
+            last = m.currentTick();
+            ticks.push_back(last);
+        }
+    }
+    const std::vector<int> expected = {0, 1, 2, 3};  // índice do clique dentro do compasso
+    CHECK(ticks == expected);
+    float subPeak = 0;
+    for (int i = 12000; i < 14400; ++i) subPeak = std::fmax(subPeak, std::fabs(buf[i]));
+    CHECK(subPeak > 0.3f);  // subdivisão bem audível
+    m.setSubdivisionVolume(0.0f);
+    std::vector<float> buf2(48000, 0.0f);
+    m.render(buf2.data(), 48000, 1);  // segundo tempo: 1 clique de tempo + 3 subdivisões mudas
+    float lateSub = 0;
+    for (int i = 12000; i < 14400; ++i) lateSub = std::fmax(lateSub, std::fabs(buf2[i]));
+    CHECK(lateSub < 1e-6f);
+}
+
 int main() {
     testTempoIsExact();
     testFractionalTempoDoesNotDrift();
@@ -305,6 +335,7 @@ int main() {
     testMixerPanMuteSoloFades();
     testMixerOffsetAndBlockBoundaries();
     testPeaks();
+    testSubdivisionTicksAreAudibleAndCounted();
     if (failures == 0) std::printf("Todos os testes do motor passaram.\n");
     return failures == 0 ? 0 : 1;
 }

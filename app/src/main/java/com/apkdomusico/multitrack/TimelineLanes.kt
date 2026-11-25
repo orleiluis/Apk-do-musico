@@ -138,7 +138,7 @@ fun TrackLane(
                     val f = xToFrames(pos.x, pps)
                     val hit = track.clips.lastOrNull { f >= it.start && f < it.end }
                     if (hit != null) {
-                        vm.selectedClip = hit.id
+                        vm.applyTool(hit.id, f)
                     } else {
                         vm.selectedClip = null
                         vm.seek(vm.snap(f))
@@ -149,6 +149,7 @@ fun TrackLane(
             .pointerInput(track.clips, pps, selectedId) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    if (vm.tool != Tool.Select) return@awaitEachGesture
                     val sel = track.clips.firstOrNull { it.id == selectedId } ?: return@awaitEachGesture
                     val x0 = framesToX(sel.start, pps)
                     val x1 = framesToX(sel.end, pps)

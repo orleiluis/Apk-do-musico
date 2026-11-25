@@ -26,6 +26,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+enum class Tool(val label: String, val hint: String) {
+    Select("↖ Selecionar", "Toque num clipe para selecionar. Arraste o clipe selecionado para mover, ou as bordas para cortar."),
+    Split("✂ Tesoura", "Toque num clipe no ponto onde quer dividir."),
+    Erase("⌫ Borracha", "Toque num clipe para apagar."),
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class MultitrackViewModel(app: Application) : AndroidViewModel(app) {
     private val store = ProjectStore(app)
@@ -50,7 +56,11 @@ class MultitrackViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var inputLevel by mutableFloatStateOf(0f)
         private set
+    var tool by mutableStateOf(Tool.Select)
+    var clipboard by mutableStateOf<Clip?>(null)
+        private set
     var clickOn by mutableStateOf(true)
+    var clickSubdivision by mutableStateOf(1)
     var snapOn by mutableStateOf(true)
     var pixelsPerSecond by mutableFloatStateOf(80f)
     var busy by mutableStateOf<String?>(null)
@@ -196,6 +206,44 @@ class MultitrackViewModel(app: Application) : AndroidViewModel(app) {
         selectedClip = null
     }
 
+    fun copySelected() {
+        val id = selectedClip ?: return
+        clipboard = project?.clip(id)?.second
+    }
+
+    /** Cola o clipe copiado na posição do cursor, na pista armada (ou na do clipe selecionado). */
+    fun paste() {
+        val p = project ?: return
+        val c = clipboard ?: return
+        val trackId = armedTrack?.takeIf { id -> p.tracks.any { it.id == id } }
+            ?: selectedClip?.let { p.clip(it)?.first?.id }
+            ?: p.tracks.firstOrNull()?.id
+            ?: return
+        val clip = c.copy(id = newId(), start = snap(position))
+        edit { Edits.addClip(it, trackId, clip) }
+        selectedClip = clip.id
+    }
+
+    fun moveSelectedTrack(delta: Int) {
+        val id = selectedClip ?: return
+        edit { Edits.moveClipByTracks(it, id, delta) }
+    }
+
+    /** Ação da ferramenta ativa ao tocar num clipe. */
+    fun applyTool(clipId: String, frame: Long) {
+        when (tool) {
+            Tool.Select -> selectedClip = clipId
+            Tool.Split -> {
+                edit { Edits.splitClip(it, clipId, snap(frame)) }
+                selectedClip = clipId
+            }
+            Tool.Erase -> {
+                edit { Edits.removeClip(it, clipId) }
+                if (selectedClip == clipId) selectedClip = null
+            }
+        }
+    }
+
     fun duplicateSelected() {
         val id = selectedClip ?: return
         edit { Edits.duplicateClip(it, id) }
@@ -249,7 +297,7 @@ class MultitrackViewModel(app: Application) : AndroidViewModel(app) {
     private fun prepareClick(p: Project) {
         NativeAudio.metronomeSetBpm(p.bpm.toDouble())
         NativeAudio.metronomeSetBeatsPerBar(p.beatsPerBar)
-        NativeAudio.metronomeSetSubdivision(1)
+        NativeAudio.metronomeSetSubdivision(clickSubdivision)
         NativeAudio.metronomeSetAccent(true)
     }
 

@@ -24,7 +24,7 @@ void Metronome::setBeatsPerBar(int beats) {
 }
 
 void Metronome::setSubdivision(int subdivision) {
-    subdivision_.store(std::clamp(subdivision, 1, 4), std::memory_order_relaxed);
+    subdivision_.store(std::clamp(subdivision, 1, 8), std::memory_order_relaxed);
 }
 
 void Metronome::setAccent(bool enabled) { accent_.store(enabled, std::memory_order_relaxed); }
@@ -43,9 +43,14 @@ void Metronome::startAt(int64_t timelineFrame) {
     running_.store(true, std::memory_order_relaxed);
 }
 
+void Metronome::setSubdivisionVolume(float volume) {
+    subVolume_.store(std::clamp(volume, 0.0f, 1.0f), std::memory_order_relaxed);
+}
+
 void Metronome::stop() {
     running_.store(false, std::memory_order_relaxed);
     currentBeat_.store(-1, std::memory_order_relaxed);
+    currentTick_.store(-1, std::memory_order_relaxed);
 }
 
 double Metronome::framesPerTick() const {
@@ -70,8 +75,9 @@ void Metronome::triggerTick() {
         freq = 1320.0;
         clickAmp_ = 0.7f;
     } else {
-        freq = 990.0;
-        clickAmp_ = 0.35f;
+        // Subdivisões: timbre diferente e volume próprio, para dar para ouvir bem.
+        freq = 2093.0;
+        clickAmp_ = 0.6f * subVolume_.load(std::memory_order_relaxed);
     }
 
     const double sr = sampleRate_.load(std::memory_order_relaxed);
@@ -83,6 +89,7 @@ void Metronome::triggerTick() {
     clickDecay_ = std::exp(-1.0 / (sr * kDecaySeconds));
 
     if (onBeat) currentBeat_.store(beat, std::memory_order_relaxed);
+    currentTick_.store(tickInBar_, std::memory_order_relaxed);
     tickCount_.fetch_add(1, std::memory_order_relaxed);
     ++tickInBar_;
 }

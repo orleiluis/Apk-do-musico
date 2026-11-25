@@ -5,7 +5,8 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.apkdomusico.audio.NativeAudio
 import com.apkdomusico.audio.TapTempo
@@ -32,9 +33,10 @@ val Subdivisions = listOf(
     Subdivision("Colcheia", 2),
     Subdivision("Tercina", 3),
     Subdivision("Semicolcheia", 4),
+    Subdivision("Sextina", 6),
 )
 
-class MetronomeViewModel : ViewModel() {
+class MetronomeViewModel(app: Application) : AndroidViewModel(app) {
     var bpm by mutableIntStateOf(100)
         private set
     var signature by mutableStateOf(TimeSignatures[2])
@@ -48,6 +50,10 @@ class MetronomeViewModel : ViewModel() {
     var running by mutableStateOf(false)
         private set
     var currentBeat by mutableIntStateOf(-1)
+        private set
+    var currentTick by mutableIntStateOf(-1)
+        private set
+    var subdivisionVolume by mutableFloatStateOf(1f)
         private set
     var error by mutableStateOf<String?>(null)
         private set
@@ -65,11 +71,18 @@ class MetronomeViewModel : ViewModel() {
         NativeAudio.metronomeSetSubdivision(subdivision.value)
         NativeAudio.metronomeSetAccent(accent)
         NativeAudio.metronomeSetVolume(volume)
+        NativeAudio.metronomeSetSubdivisionVolume(subdivisionVolume)
+    }
+
+    fun changeSubdivisionVolume(value: Float) {
+        subdivisionVolume = value
+        NativeAudio.metronomeSetSubdivisionVolume(value)
     }
 
     fun changeBpm(value: Int) {
         bpm = value.coerceIn(30, 300)
         NativeAudio.metronomeSetBpm(bpm.toDouble())
+        if (running) MetronomeService.start(getApplication(), bpm)
     }
 
     fun tap() {
@@ -107,9 +120,16 @@ class MetronomeViewModel : ViewModel() {
         }
         error = null
         running = true
+        MetronomeService.start(getApplication(), bpm)
         pollJob = viewModelScope.launch {
             while (isActive) {
+                if (!NativeAudio.metronomeIsRunning()) {
+                    // Parado pela notificação.
+                    stop()
+                    break
+                }
                 currentBeat = NativeAudio.metronomeCurrentBeat()
+                currentTick = NativeAudio.metronomeCurrentTick()
                 delay(15)
             }
         }
@@ -118,9 +138,11 @@ class MetronomeViewModel : ViewModel() {
     fun stop() {
         if (!running) return
         NativeAudio.metronomeStop()
+        MetronomeService.stop(getApplication())
         pollJob?.cancel()
         running = false
         currentBeat = -1
+        currentTick = -1
     }
 
     override fun onCleared() {

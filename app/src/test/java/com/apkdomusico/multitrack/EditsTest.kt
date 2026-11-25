@@ -90,4 +90,31 @@ class EditsTest {
         h.push(b)
         assertFalse(h.canRedo)
     }
+
+    @Test
+    fun duplicarPistaCopiaClipesComIdsNovos() {
+        val (p, clip) = projectWithClip()
+        val out = Edits.duplicateTrack(p, p.tracks[0].id)
+        assertEquals(2, out.tracks.size)
+        val copy = out.tracks[1].clips[0]
+        assertEquals(clip.start, copy.start)
+        assertTrue(copy.id != clip.id)
+    }
+
+    @Test
+    fun moverClipeParaPistaDeBaixoEDeCima() {
+        val (p0, clip) = projectWithClip()
+        val p = Edits.addTrack(p0)
+        val down = Edits.moveClipByTracks(p, clip.id, +1)
+        assertEquals(clip, down.tracks[1].clips[0])
+        assertEquals(down, Edits.moveClipByTracks(down, clip.id, +1)) // não há pista abaixo
+        val up = Edits.moveClipByTracks(down, clip.id, -1)
+        assertEquals(clip, up.tracks[0].clips[0])
+    }
+
+    @Test
+    fun limparPista() {
+        val (p, _) = projectWithClip()
+        assertTrue(Edits.clearTrack(p, p.tracks[0].id).tracks[0].clips.isEmpty())
+    }
 }
