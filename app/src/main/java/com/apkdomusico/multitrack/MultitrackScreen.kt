@@ -229,6 +229,10 @@ private fun Editor(vm: MultitrackViewModel, modifier: Modifier) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             FilterChip(selected = vm.clickOn, onClick = { vm.clickOn = !vm.clickOn }, label = { Text("Clique ${project.bpm}") })
+            OutlinedButton(
+                onClick = { vm.clickSubdivision = listOf(1, 2, 3, 4, 6).let { l -> l[(l.indexOf(vm.clickSubdivision) + 1) % l.size] } },
+                contentPadding = SmallPadding,
+            ) { Text("Subdiv. ${subdivisionName(vm.clickSubdivision)}") }
             FilterChip(selected = vm.snapOn, onClick = { vm.snapOn = !vm.snapOn }, label = { Text("Grade") })
             OutlinedButton(onClick = { vm.pixelsPerSecond = (pps / 1.5f).coerceAtLeast(10f) }, contentPadding = SmallPadding) { Text("−") }
             Text("Zoom")
@@ -308,28 +312,30 @@ private fun Editor(vm: MultitrackViewModel, modifier: Modifier) {
             }
         }
 
-        // Ações do clipe selecionado
-        if (selected != null) {
+        // Ferramentas de edição
+        val hasSel = selected != null
+        Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant)) {
             Row(
-                Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Clipe:", style = MaterialTheme.typography.labelLarge)
-                TextButton(onClick = vm::splitSelectedAtPlayhead) { Text("Dividir no cursor") }
-                TextButton(onClick = vm::duplicateSelected) { Text("Duplicar") }
-                TextButton(onClick = { fadeDialog = true }) { Text("Fades e ganho") }
-                TextButton(onClick = vm::deleteSelected) { Text("Apagar") }
-                TextButton(onClick = { vm.selectedClip = null }) { Text("✕") }
+                Tool.entries.forEach { t ->
+                    FilterChip(selected = vm.tool == t, onClick = { vm.tool = t }, label = { Text(t.label) })
+                }
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = vm::splitSelectedAtPlayhead, enabled = hasSel) { Text("Dividir no cursor") }
+                TextButton(onClick = vm::copySelected, enabled = hasSel) { Text("Copiar") }
+                TextButton(onClick = vm::paste, enabled = vm.clipboard != null) { Text("Colar no cursor") }
+                TextButton(onClick = vm::duplicateSelected, enabled = hasSel) { Text("Duplicar") }
+                TextButton(onClick = { fadeDialog = true }, enabled = hasSel) { Text("Fades e ganho") }
+                TextButton(onClick = { vm.moveSelectedTrack(-1) }, enabled = hasSel) { Text("↑ Pista") }
+                TextButton(onClick = { vm.moveSelectedTrack(+1) }, enabled = hasSel) { Text("↓ Pista") }
+                TextButton(onClick = vm::deleteSelected, enabled = hasSel) { Text("Apagar") }
             }
-        } else {
             Text(
-                "Toque num clipe para selecionar. Arraste o clipe selecionado para mover, ou as bordas para cortar.",
-                Modifier.padding(8.dp),
+                vm.tool.hint,
+                Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -372,14 +378,22 @@ private fun TrackHeader(
             .padding(4.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(
-            track.name,
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 13.sp,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                track.name,
+                modifier = Modifier.weight(1f).clickable(onClick = onOpen),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp,
+            )
+            Text(
+                "⋮",
+                Modifier.clickable(onClick = onOpen).padding(horizontal = 6.dp),
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+            )
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Toggle("M", track.mute, MaterialTheme.colorScheme.tertiary, onMute)
             Toggle("S", track.solo, MaterialTheme.colorScheme.primary, onSolo)
@@ -469,6 +483,16 @@ private fun TrackDialog(vm: MultitrackViewModel, track: Track, onDismiss: () -> 
                     else -> "centro"
                 })
                 Slider(pan, { pan = it }, valueRange = -1f..1f)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(onClick = {
+                        vm.edit { Edits.duplicateTrack(it, track.id) }
+                        onDismiss()
+                    }) { Text("Duplicar pista") }
+                    OutlinedButton(onClick = {
+                        vm.edit { Edits.clearTrack(it, track.id) }
+                        onDismiss()
+                    }) { Text("Limpar") }
+                }
                 TextButton(onClick = { confirmDelete = true }) {
                     Text(if (confirmDelete) "Toque de novo para apagar a pista" else "Apagar pista", color = MaterialTheme.colorScheme.error)
                 }
@@ -572,6 +596,15 @@ fun share(context: Context, file: File, title: String) {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
     context.startActivity(Intent.createChooser(intent, title))
+}
+
+fun subdivisionName(n: Int) = when (n) {
+    1 -> "não"
+    2 -> "colcheia"
+    3 -> "tercina"
+    4 -> "semicolcheia"
+    6 -> "sextina"
+    else -> "$n"
 }
 
 fun formatClock(frames: Long): String {

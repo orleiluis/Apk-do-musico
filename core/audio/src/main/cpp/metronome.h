@@ -18,6 +18,8 @@ public:
     void setSubdivision(int subdivision);
     void setAccent(bool enabled);
     void setVolume(float volume);
+    // Volume das subdivisões em relação aos tempos (0..1).
+    void setSubdivisionVolume(float volume);
 
     double bpm() const { return bpm_.load(std::memory_order_relaxed); }
     int beatsPerBar() const { return beatsPerBar_.load(std::memory_order_relaxed); }
@@ -31,6 +33,8 @@ public:
 
     // Tempo atual do compasso (0 = primeiro), ou -1 parado.
     int currentBeat() const { return currentBeat_.load(std::memory_order_relaxed); }
+    // Clique atual dentro do compasso, contando subdivisões (tempo * subdivisão + parte), ou -1.
+    int currentTick() const { return currentTick_.load(std::memory_order_relaxed); }
 
     // Total de cliques gerados desde o início (útil em testes).
     int64_t tickCount() const { return tickCount_.load(std::memory_order_relaxed); }
@@ -49,6 +53,8 @@ private:
     std::atomic<float> volume_{0.8f};
     std::atomic<bool> running_{false};
     std::atomic<int> currentBeat_{-1};
+    std::atomic<int> currentTick_{-1};
+    std::atomic<float> subVolume_{1.0f};
     std::atomic<int64_t> tickCount_{0};
     std::atomic<int> sampleRate_{48000};
     std::atomic<int64_t> pendingAlign_{-1};

@@ -33,6 +33,10 @@ JNI_FN(void, metronomeSetVolume)(JNIEnv*, jobject, jfloat volume) {
     engine().metronome().setVolume(volume);
 }
 JNI_FN(jint, metronomeCurrentBeat)(JNIEnv*, jobject) { return engine().metronome().currentBeat(); }
+JNI_FN(jint, metronomeCurrentTick)(JNIEnv*, jobject) { return engine().metronome().currentTick(); }
+JNI_FN(void, metronomeSetSubdivisionVolume)(JNIEnv*, jobject, jfloat volume) {
+    engine().metronome().setSubdivisionVolume(volume);
+}
 
 JNI_FN(jboolean, recordStart)(JNIEnv* env, jobject, jstring path) {
     const char* chars = env->GetStringUTFChars(path, nullptr);

@@ -62,6 +62,31 @@ object Edits {
     fun removeTrack(p: Project, trackId: String): Project =
         p.copy(tracks = p.tracks.filterNot { it.id == trackId })
 
+    /** Cria uma cópia da pista logo abaixo dela, com cópias dos clipes. */
+    fun duplicateTrack(p: Project, trackId: String): Project {
+        if (p.tracks.size >= MAX_TRACKS) return p
+        val index = p.tracks.indexOfFirst { it.id == trackId }
+        if (index < 0) return p
+        val src = p.tracks[index]
+        val copy = src.copy(
+            id = newId(),
+            name = (src.name + " (cópia)").take(30),
+            solo = false,
+            clips = src.clips.map { it.copy(id = newId()) },
+        )
+        return p.copy(tracks = p.tracks.toMutableList().apply { add(index + 1, copy) })
+    }
+
+    fun clearTrack(p: Project, trackId: String): Project = updateTrack(p, trackId) { it.copy(clips = emptyList()) }
+
+    /** Move o clipe para a pista vizinha ([delta] = -1 acima, +1 abaixo). */
+    fun moveClipByTracks(p: Project, clipId: String, delta: Int): Project {
+        val (track, _) = p.clip(clipId) ?: return p
+        val target = p.tracks.indexOfFirst { it.id == track.id } + delta
+        if (target !in p.tracks.indices) return p
+        return moveClipToTrack(p, clipId, p.tracks[target].id)
+    }
+
     fun addClip(p: Project, trackId: String, clip: Clip): Project =
         updateTrack(p, trackId) { it.copy(clips = it.clips + clip) }
 

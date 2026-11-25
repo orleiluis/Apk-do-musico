@@ -29,6 +29,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -49,7 +52,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.apkdomusico.tabs.TabWebView
 import com.apkdomusico.tabs.TabsViewModel
+import com.apkdomusico.ui.BeatLights
 import com.apkdomusico.ui.MetronomeViewModel
+import com.apkdomusico.ui.Subdivisions
+import com.apkdomusico.ui.TimeSignatures
+import androidx.compose.foundation.verticalScroll
 import java.io.File
 
 @Composable
@@ -59,16 +66,6 @@ fun BrowserScreen(
     tabs: TabsViewModel,
     modifier: Modifier = Modifier,
 ) {
-    val fullscreen = state.fullscreenView
-    if (fullscreen != null) {
-        BackHandler { state.exitFullscreen() }
-        AndroidView(
-            factory = { fullscreen.also { (it.parent as? android.view.ViewGroup)?.removeView(it) } },
-            modifier = modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black),
-        )
-        return
-    }
-
     var study by rememberSaveable { mutableStateOf(false) }
     var studyPanel by rememberSaveable { mutableStateOf(0) } // 0 metrônomo, 1 tablatura
     var studyTab by remember { mutableStateOf<File?>(null) }
@@ -78,7 +75,8 @@ fun BrowserScreen(
 
     LaunchedEffect(Unit) { state.ensureLoaded() }
     LaunchedEffect(state.url) { if (!editing) address = state.url }
-    BackHandler(enabled = state.canGoBack) { state.back() }
+    BackHandler(enabled = state.canGoBack || state.popup != null) { state.back() }
+    DisposableEffect(Unit) { onDispose { state.contentBounds = null } }
 
     Column(modifier.fillMaxSize()) {
         // Endereço
@@ -128,9 +126,28 @@ fun BrowserScreen(
             }
         }
 
-        AndroidView(
-            factory = { state.detachedWebView() },
-            modifier = Modifier.fillMaxWidth().weight(if (study) 0.55f else 1f),
+        if (state.blankSuspected) {
+            Row(
+                Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.errorContainer).padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "A página ficou em branco?",
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+                TextButton(onClick = state::reload) { Text("Recarregar") }
+                TextButton(onClick = { state.openSecure() }) { Text("Abrir no navegador seguro") }
+            }
+        }
+
+        // Espaço da página: o WebView é desenhado por cima, pelo BrowserHost, para não ser recriado ao trocar de aba.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .weight(if (study) 0.55f else 1f)
+                .onGloballyPositioned { state.contentBounds = it.boundsInRoot() },
         )
 
         if (study) {
@@ -166,20 +183,17 @@ private val Small = androidx.compose.foundation.layout.PaddingValues(horizontal 
 @Composable
 private fun MiniMetronome(vm: MetronomeViewModel) {
     Column(
-        Modifier.fillMaxSize().padding(8.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (i in 0 until vm.signature.beats) {
-                Box(
-                    Modifier
-                        .size(if (i == 0) 22.dp else 16.dp)
-                        .clip(CircleShape)
-                        .background(if (i == vm.currentBeat) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface),
-                )
-            }
-        }
+        BeatLights(
+            beats = vm.signature.beats,
+            subdivision = vm.subdivision.value,
+            currentTick = vm.currentTick,
+            accent = vm.accent,
+            small = true,
+        )
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             OutlinedButton(onClick = { vm.changeBpm(vm.bpm - 5) }, contentPadding = Small) { Text("−5") }
             OutlinedButton(onClick = { vm.changeBpm(vm.bpm - 1) }, contentPadding = Small) { Text("−1") }
@@ -190,7 +204,16 @@ private fun MiniMetronome(vm: MetronomeViewModel) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = vm::toggle) { Text(if (vm.running) "Parar" else "Tocar") }
             OutlinedButton(onClick = vm::tap) { Text("Tap tempo") }
-            Text(vm.signature.label, Modifier.align(Alignment.CenterVertically))
+        }
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            TimeSignatures.forEach { sig ->
+                FilterChip(selected = sig == vm.signature, onClick = { vm.changeSignature(sig) }, label = { Text(sig.label) })
+            }
+        }
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Subdivisions.forEach { sub ->
+                FilterChip(selected = sub == vm.subdivision, onClick = { vm.changeSubdivision(sub) }, label = { Text(sub.label) })
+            }
         }
     }
 }

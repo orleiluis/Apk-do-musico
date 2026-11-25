@@ -18,6 +18,12 @@ object NativeAudio {
     /** Tempo atual do compasso (0 = primeiro), ou -1 parado. */
     external fun metronomeCurrentBeat(): Int
 
+    /** Clique atual dentro do compasso contando subdivisões, ou -1 parado. */
+    external fun metronomeCurrentTick(): Int
+
+    /** Volume das subdivisões em relação aos tempos (0..1). */
+    external fun metronomeSetSubdivisionVolume(volume: Float)
+
     /** Começa a gravar em WAV mono 16 bits no caminho dado. */
     external fun recordStart(path: String): Boolean
 

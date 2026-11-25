@@ -24,6 +24,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.LaunchedEffect
+import com.apkdomusico.browser.BrowserHost
 import com.apkdomusico.browser.BrowserScreen
 import com.apkdomusico.browser.BrowserState
 import com.apkdomusico.multitrack.MultitrackScreen
@@ -32,6 +36,8 @@ import com.apkdomusico.tabs.TabsScreen
 import com.apkdomusico.tabs.TabsViewModel
 
 private val Accent = Color(0xFFE0A030)
+
+private const val AULAS = 2
 
 private val Tabs = listOf(
     "≡" to "Estúdio",
@@ -69,6 +75,10 @@ fun AppRoot() {
         }
         var tab by rememberSaveable { mutableIntStateOf(0) }
 
+        LaunchedEffect(tab) {
+            if (tab == AULAS) browser.mini = false else browser.checkPlaying { browser.mini = it }
+        }
+        Box(Modifier.fillMaxSize()) {
         Scaffold(
             bottomBar = {
                 NavigationBar {
@@ -91,6 +101,8 @@ fun AppRoot() {
                 3 -> MetronomeScreen(metronome, modifier)
                 else -> RecorderScreen(recorder, metronome, modifier)
             }
+        }
+        BrowserHost(browser, onAulasTab = tab == AULAS, onExpand = { tab = AULAS })
         }
     }
 }
