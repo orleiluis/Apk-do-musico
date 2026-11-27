@@ -13,6 +13,7 @@
 #include "audio_buffer.h"
 #include "metronome.h"
 #include "mixer.h"
+#include "playback.h"
 #include "ring_buffer.h"
 #include "wav_writer.h"
 
@@ -49,6 +50,12 @@ public:
     void stopPlayback();
     bool isPlaying() const { return playing_.load(); }
     int64_t position() const { return playhead_.load(); }
+
+    // Repetição do trecho A/B (quadros da linha do tempo).
+    void setLoop(bool enabled, int64_t a, int64_t b);
+    // Velocidade da reprodução sem mudar o tom (0,25 a 1,5). Gravando, toca sempre em 1.
+    void setSpeed(double speed);
+    double speed() const { return speed_.load(); }
 
     // Renderiza o projeto publicado num WAV estéreo, sem o metrônomo.
     bool exportMix(const std::string& path, int64_t totalFrames);
@@ -93,6 +100,13 @@ private:
     std::atomic<bool> playing_{false};
     std::atomic<int64_t> playhead_{0};
     std::atomic<bool> transportClick_{false};
+    std::atomic<bool> loopEnabled_{false};
+    std::atomic<int64_t> loopA_{0};
+    std::atomic<int64_t> loopB_{0};
+    std::atomic<double> speed_{1.0};
+    std::atomic<bool> restartStretch_{true};
+    TimeStretcher stretcher_;
+    bool stretching_ = false;  // thread de áudio
 
     RingBuffer ring_;
     WavWriter wav_;

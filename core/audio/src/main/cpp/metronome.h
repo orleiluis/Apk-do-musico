@@ -20,6 +20,8 @@ public:
     void setVolume(float volume);
     // Volume das subdivisões em relação aos tempos (0..1).
     void setSubdivisionVolume(float volume);
+    // Velocidade da linha do tempo (1 = normal). Com a música mais lenta, o clique acompanha.
+    void setRate(double rate);
 
     double bpm() const { return bpm_.load(std::memory_order_relaxed); }
     int beatsPerBar() const { return beatsPerBar_.load(std::memory_order_relaxed); }
@@ -58,6 +60,7 @@ private:
     std::atomic<int64_t> tickCount_{0};
     std::atomic<int> sampleRate_{48000};
     std::atomic<int64_t> pendingAlign_{-1};
+    std::atomic<double> rate_{1.0};
 
     // Estado da thread de áudio.
     bool wasRunning_ = false;

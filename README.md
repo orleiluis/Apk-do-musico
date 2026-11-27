@@ -8,7 +8,7 @@ Plano completo: https://claude.ai/artifact/RBmWRELPHEGC6U6QhXAwqc
 
 | Aba | Recursos |
 | --- | --- |
-| **Estúdio** | Projetos com até 8 pistas. Grava ouvindo as outras pistas e o clique, com compensação de latência. Importa MP3, M4A, FLAC, OGG e WAV. Move, corta, divide, duplica e apaga clipes; fades e ganho; volume, pan, mudo e solo; desfazer/refazer. Exporta a mixagem em WAV. |
+| **Estúdio** | Projetos com até 8 pistas. Grava ouvindo as outras pistas e o clique, com compensação de latência. Importa MP3, M4A, FLAC, OGG e WAV. Move, corta, divide, duplica e apaga clipes; fades e ganho; volume, pan, mudo e solo; desfazer/refazer. Exporta a mixagem em WAV. Para estudar: **Looper** com trecho A/B (o clique volta junto) e **Velocidade** de 25% a 150% sem mudar o tom. |
 | **Tabs** | Abre Guitar Pro (.gp, .gp3, .gp4, .gp5, .gpx), MusicXML e Capella com [alphaTab](https://www.alphatab.net). Toca com cursor, repete trecho selecionado, velocidade de 25% a 150%, metrônomo, contagem, mudo/solo por instrumento. |
 | **Aulas** | Navegador para YouTube, Hotmart, Kiwify e qualquer site, com favoritos, vídeos com DRM e tela cheia. Modo estudo: vídeo em cima, metrônomo ou tablatura embaixo. Logins do Google abrem no navegador seguro do sistema. Em WebView antigo (tablets Fire, por exemplo) o app completa funções que faltam aos sites novos; **Detalhes** mostra o que a página não conseguiu carregar. |
 | **Metrônomo** | 30 a 300 BPM, compassos 1/1 a 7/8, subdivisões, acento, tap tempo. Clique gerado no motor C++ com precisão de amostra. |

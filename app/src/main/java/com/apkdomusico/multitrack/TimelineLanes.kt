@@ -59,9 +59,13 @@ fun Ruler(
     position: Long,
     scrollPx: Int,
     viewportPx: Int,
+    loopA: Long = -1,
+    loopB: Long = -1,
+    loopOn: Boolean = false,
     onSeek: (Long) -> Unit,
 ) {
     val density = LocalDensity.current
+    val loopColor = MaterialTheme.colorScheme.tertiary
     val textColor = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
     val bar = MaterialTheme.colorScheme.outline
     val bg = MaterialTheme.colorScheme.surfaceVariant
@@ -74,6 +78,17 @@ fun Ruler(
             .pointerInput(pps) { detectTapGestures { onSeek(xToFrames(it.x, pps)) } },
     ) {
         drawRect(bg)
+        // Trecho do looper: faixa colorida entre A e B, com as marcas.
+        if (loopA >= 0 && loopB > loopA) {
+            val ax = framesToX(loopA, pps)
+            val bx = framesToX(loopB, pps)
+            drawRect(loopColor.copy(alpha = if (loopOn) 0.35f else 0.12f), Offset(ax, 0f), Size(bx - ax, size.height))
+            drawLine(loopColor, Offset(ax, 0f), Offset(ax, size.height), strokeWidth = 3f)
+            drawLine(loopColor, Offset(bx, 0f), Offset(bx, size.height), strokeWidth = 3f)
+        } else if (loopA >= 0) {
+            val ax = framesToX(loopA, pps)
+            drawLine(loopColor, Offset(ax, 0f), Offset(ax, size.height), strokeWidth = 3f)
+        }
         val from = scrollPx.toFloat()
         val to = from + max(viewportPx, 1)
         val beatPx = (project.framesPerBeat() / SAMPLE_RATE * pps).toFloat()
