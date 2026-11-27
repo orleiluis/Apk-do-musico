@@ -90,6 +90,12 @@ JNI_FN(jboolean, transportPlay)(JNIEnv*, jobject, jlong from, jboolean click) {
 JNI_FN(void, transportStop)(JNIEnv*, jobject) { engine().stopPlayback(); }
 JNI_FN(jboolean, transportIsPlaying)(JNIEnv*, jobject) { return engine().isPlaying(); }
 JNI_FN(jlong, transportPosition)(JNIEnv*, jobject) { return engine().position(); }
+
+JNI_FN(void, transportSetLoop)(JNIEnv*, jobject, jboolean enabled, jlong a, jlong b) {
+    engine().setLoop(enabled, a, b);
+}
+
+JNI_FN(void, transportSetSpeed)(JNIEnv*, jobject, jdouble speed) { engine().setSpeed(speed); }
 JNI_FN(jboolean, exportMix)(JNIEnv* env, jobject, jstring path, jlong frames) {
     return engine().exportMix(toString(env, path), frames);
 }

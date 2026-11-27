@@ -43,6 +43,10 @@ void Metronome::startAt(int64_t timelineFrame) {
     running_.store(true, std::memory_order_relaxed);
 }
 
+void Metronome::setRate(double rate) {
+    rate_.store(std::clamp(rate, 0.1, 4.0), std::memory_order_relaxed);
+}
+
 void Metronome::setSubdivisionVolume(float volume) {
     subVolume_.store(std::clamp(volume, 0.0f, 1.0f), std::memory_order_relaxed);
 }
@@ -111,6 +115,7 @@ void Metronome::render(float* out, int numFrames, int channels) {
 
     const float volume = volume_.load(std::memory_order_relaxed);
     const double step = running ? framesPerTick() : 0.0;
+    const double rate = rate_.load(std::memory_order_relaxed);
 
     for (int i = 0; i < numFrames; ++i) {
         if (running) {
@@ -118,7 +123,7 @@ void Metronome::render(float* out, int numFrames, int channels) {
                 triggerTick();
                 framesUntilNextTick_ += step;
             }
-            framesUntilNextTick_ -= 1.0;
+            framesUntilNextTick_ -= rate;
         }
 
         if (clickPos_ < clickLen_) {

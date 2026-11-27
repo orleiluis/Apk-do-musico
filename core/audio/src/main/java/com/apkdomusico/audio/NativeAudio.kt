@@ -60,6 +60,12 @@ object NativeAudio {
     external fun transportIsPlaying(): Boolean
     external fun transportPosition(): Long
 
+    /** Repete o trecho entre A e B (quadros a 48 kHz). */
+    external fun transportSetLoop(enabled: Boolean, a: Long, b: Long)
+
+    /** Velocidade da reprodução sem mudar o tom: 0,25 a 1,5. Gravando, toca sempre em 1. */
+    external fun transportSetSpeed(speed: Double)
+
     /** Renderiza o projeto publicado num WAV estéreo (sem metrônomo). Bloqueia: chame fora da thread principal. */
     external fun exportMix(path: String, frames: Long): Boolean
 

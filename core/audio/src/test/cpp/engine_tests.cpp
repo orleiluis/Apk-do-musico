@@ -8,6 +8,7 @@
 #include "audio_buffer.h"
 #include "metronome.h"
 #include "mixer.h"
+#include "playback.h"
 #include "ring_buffer.h"
 #include "wav_writer.h"
 
@@ -322,6 +323,136 @@ static void testSubdivisionTicksAreAudibleAndCounted() {
     CHECK(lateSub < 1e-6f);
 }
 
+static ProjectData projectFrom(const WavData& w) {
+    ProjectData p;
+    TrackData t;
+    ClipData c;
+    c.buffer = makeBuffer(w, 48000);
+    c.length = c.buffer->frames;
+    t.clips.push_back(c);
+    p.tracks.push_back(t);
+    return p;
+}
+
+// Rampa: a amostra i vale i/65536, para descobrir de qual quadro veio cada saída.
+static ProjectData rampProject(int frames) {
+    WavData w;
+    w.sampleRate = 48000;
+    w.channels = 1;
+    w.samples.resize(frames);
+    for (int i = 0; i < frames; ++i) w.samples[i] = i / 65536.0f;
+    return projectFrom(w);
+}
+
+static ProjectData sineProject(double freq, int frames) {
+    WavData w;
+    w.sampleRate = 48000;
+    w.channels = 1;
+    w.samples.resize(frames);
+    for (int i = 0; i < frames; ++i) w.samples[i] = 0.5f * static_cast<float>(std::sin(6.283185307179586 * freq * i / 48000.0));
+    return projectFrom(w);
+}
+
+static void testLoopMath() {
+    LoopRegion loop{true, 1000, 2000};
+    CHECK(loopAdvance(int64_t{500}, int64_t{400}, loop) == 900);
+    CHECK(loopAdvance(int64_t{1900}, int64_t{150}, loop) == 1050);   // passou de B: volta para A
+    CHECK(loopAdvance(int64_t{1900}, int64_t{2150}, loop) == 1050);  // várias voltas
+    CHECK(loopAdvance(int64_t{2500}, int64_t{100}, loop) == 2600);   // depois de B não repete
+    CHECK(framesUntilWrap(1990, loop) == 10);
+    CHECK(framesUntilWrap(2500, loop) == -1);
+    LoopRegion off{false, 1000, 2000};
+    CHECK(loopAdvance(int64_t{1900}, int64_t{150}, off) == 2050);
+    LoopRegion bad{true, 2000, 1000};  // B antes de A: ignora
+    CHECK(!bad.active());
+}
+
+static void testReadTimelineRepeatsAB() {
+    ProjectData p = rampProject(50000);
+    LoopRegion loop{true, 10000, 20000};
+    std::vector<float> out(35000 * 2);
+    readTimeline(p, 15000, out.data(), 35000, loop);
+    auto at = [&](int i) { return static_cast<int>(std::lround(out[i * 2] * 65536.0f)); };
+    CHECK(std::abs(at(0) - 15000) <= 1);
+    CHECK(std::abs(at(4000) - 19000) <= 1);
+    CHECK(std::abs(at(6000) - 11000) <= 1);   // 5000 até B, depois A + 1000
+    CHECK(std::abs(at(20000) - 15000) <= 1);  // segunda volta
+    CHECK(std::abs(at(30000) - 15000) <= 1);  // terceira volta
+    // Na emenda o volume cai a zero (sem estalo).
+    CHECK(std::fabs(out[5000 * 2]) < 0.01f);
+}
+
+static int zeroCrossings(const std::vector<float>& st, int from, int to) {
+    int n = 0;
+    for (int i = from + 1; i < to; ++i) {
+        if ((st[(i - 1) * 2] < 0.0f) != (st[i * 2] < 0.0f)) ++n;
+    }
+    return n;
+}
+
+static void testStretchKeepsPitchAndTracksPosition() {
+    ProjectData p = sineProject(440.0, 48000 * 12);
+    LoopRegion none;
+    for (double speed : {0.5, 0.75, 1.25}) {
+        TimeStretcher ts;
+        ts.reset(p, 48000, none);
+        std::vector<float> out(48000 * 2);
+        // Blocos de tamanhos variados, como os da placa de som.
+        int done = 0;
+        int block = 192;
+        while (done < 48000) {
+            const int n = std::min(block, 48000 - done);
+            ts.render(p, none, speed, out.data() + done * 2, n);
+            done += n;
+            block = block == 192 ? 960 : 192;
+        }
+        // Tom: 440 Hz = 880 passagens por zero por segundo, qualquer que seja a velocidade.
+        const int zc = zeroCrossings(out, 4800, 48000);
+        const double hz = zc / 2.0 / (43200.0 / 48000.0);
+        CHECK(std::fabs(hz - 440.0) < 8.0);
+        // Posição: 1 s de saída anda `speed` segundos na música.
+        const double moved = static_cast<double>(ts.position(none) - 48000) / 48000.0;
+        CHECK(std::fabs(moved - speed) < 0.03);
+        // Sem buracos: o nível fica perto do da senoide (0,5 de pico).
+        float peak = 0.0f, low = 1.0f;
+        for (int w = 4800; w + 960 <= 48000; w += 960) {
+            float pk = 0.0f;
+            for (int i = w; i < w + 960; ++i) pk = std::fmax(pk, std::fabs(out[i * 2]));
+            peak = std::fmax(peak, pk);
+            low = std::fmin(low, pk);
+        }
+        CHECK(peak < 0.6f);
+        CHECK(low > 0.35f);
+    }
+}
+
+static void testStretchWithLoopStaysInsideAB() {
+    ProjectData p = rampProject(60000);
+    LoopRegion loop{true, 20000, 30000};
+    TimeStretcher ts;
+    ts.reset(p, 25000, loop);
+    std::vector<float> out(512 * 2);
+    int wraps = 0;
+    for (int b = 0; b < 200; ++b) {
+        if (ts.render(p, loop, 0.5, out.data(), 512) >= 0) ++wraps;
+        const int64_t pos = ts.position(loop);
+        CHECK(pos >= 20000 && pos < 30000);
+    }
+    // 102400 quadros a 0,5x = 51200 quadros de música: começa a 5000 de B, depois voltas de 10000.
+    CHECK(wraps == 5);
+}
+
+static void testMetronomeRateFollowsSpeed() {
+    Metronome m;
+    m.setSampleRate(48000);
+    m.setBpm(120.0);
+    m.setRate(0.5);
+    m.start();
+    const auto starts = clickStarts(m, 48000, 4.0, 256);
+    CHECK(starts.size() == 4);  // 120 BPM pela metade = 1 clique por segundo
+    if (starts.size() >= 2) CHECK(std::abs((starts[1] - starts[0]) - 48000) <= 1);
+}
+
 int main() {
     testTempoIsExact();
     testFractionalTempoDoesNotDrift();
@@ -336,6 +467,11 @@ int main() {
     testMixerOffsetAndBlockBoundaries();
     testPeaks();
     testSubdivisionTicksAreAudibleAndCounted();
+    testLoopMath();
+    testReadTimelineRepeatsAB();
+    testStretchKeepsPitchAndTracksPosition();
+    testStretchWithLoopStaysInsideAB();
+    testMetronomeRateFollowsSpeed();
     if (failures == 0) std::printf("Todos os testes do motor passaram.\n");
     return failures == 0 ? 0 : 1;
 }

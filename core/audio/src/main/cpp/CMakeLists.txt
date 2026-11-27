@@ -8,6 +8,7 @@ add_library(musico_audio SHARED
     wav_writer.cpp
     audio_buffer.cpp
     mixer.cpp
+    playback.cpp
     audio_engine.cpp
     jni_bridge.cpp
 )

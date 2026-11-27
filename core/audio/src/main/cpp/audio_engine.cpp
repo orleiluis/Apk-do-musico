@@ -165,9 +165,24 @@ void AudioEngine::commitProject() {
     project_ = next;
 }
 
+void AudioEngine::setLoop(bool enabled, int64_t a, int64_t b) {
+    loopA_.store(std::max<int64_t>(0, a));
+    loopB_.store(std::max<int64_t>(0, b));
+    loopEnabled_.store(enabled);
+    restartStretch_.store(true);
+}
+
+void AudioEngine::setSpeed(double speed) {
+    speed_.store(std::clamp(speed, 0.25, 1.5));
+}
+
 bool AudioEngine::play(int64_t fromFrame, bool withClick) {
     std::lock_guard<std::mutex> lock(mutex_);
-    playhead_.store(std::max<int64_t>(0, fromFrame));
+    int64_t from = std::max<int64_t>(0, fromFrame);
+    // Com o loop ligado e a agulha depois de B, começa em A.
+    if (loopEnabled_.load() && loopB_.load() > loopA_.load() && from >= loopB_.load()) from = loopA_.load();
+    playhead_.store(from);
+    restartStretch_.store(true);
     transportClick_.store(withClick);
     if (!openOutputLocked()) return false;
     if (withClick) metronome_.startAt(playhead_.load());
@@ -322,11 +337,41 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream* stream, vo
                 audioProject_ = project_;
                 projectMutex_.unlock();
             }
-            const int64_t pos = playhead_.load(std::memory_order_relaxed);
+            int64_t pos = playhead_.load(std::memory_order_relaxed);
+            LoopRegion loop;
+            loop.enabled = loopEnabled_.load(std::memory_order_relaxed);
+            loop.a = loopA_.load(std::memory_order_relaxed);
+            loop.b = loopB_.load(std::memory_order_relaxed);
+            // Gravando, sem loop e sem mudar a velocidade: a gravação precisa da linha do tempo real.
+            const bool rec = recording_.load(std::memory_order_relaxed);
+            if (rec) loop.enabled = false;
+            const double speed = rec ? 1.0 : speed_.load(std::memory_order_relaxed);
+            const bool click = transportClick_.load(std::memory_order_relaxed);
+            metronome_.setRate(click ? speed : 1.0);
+            if (loop.active() && pos >= loop.b) {
+                pos = loop.a;
+                if (click) metronome_.startAt(pos);
+                restartStretch_.store(true, std::memory_order_relaxed);
+            }
+            int wrapAt = -1;
             if (audioProject_ && numFrames <= kMaxCallbackFrames) {
                 float* mix = mixScratch_.data();
-                std::fill(mix, mix + numFrames * 2, 0.0f);
-                mixProject(*audioProject_, pos, mix, numFrames);
+                const bool stretch = std::fabs(speed - 1.0) > 1e-3;
+                if (stretch) {
+                    if (!stretching_ || restartStretch_.exchange(false, std::memory_order_relaxed)) {
+                        stretcher_.reset(*audioProject_, pos, loop);
+                    }
+                    stretching_ = true;
+                    wrapAt = stretcher_.render(*audioProject_, loop, speed, mix, numFrames);
+                    pos = stretcher_.position(loop);
+                } else {
+                    stretching_ = false;
+                    restartStretch_.store(false, std::memory_order_relaxed);
+                    readTimeline(*audioProject_, pos, mix, numFrames, loop);
+                    const int64_t until = framesUntilWrap(pos, loop);
+                    if (until >= 0 && until < numFrames) wrapAt = static_cast<int>(until);
+                    pos = loopAdvance(pos, static_cast<int64_t>(numFrames), loop);
+                }
                 for (int i = 0; i < numFrames; ++i) {
                     if (channels == 1) {
                         out[i] = 0.5f * (mix[i * 2] + mix[i * 2 + 1]);
@@ -335,10 +380,23 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream* stream, vo
                         out[i * channels + 1] = mix[i * 2 + 1];
                     }
                 }
+            } else {
+                pos = loopAdvance(pos, static_cast<int64_t>(numFrames), loop);
             }
-            playhead_.store(pos + numFrames, std::memory_order_relaxed);
+            playhead_.store(pos, std::memory_order_relaxed);
+            if (wrapAt > 0 && wrapAt < numFrames) {
+                // O clique volta junto com a música: realinha em A no quadro da volta.
+                metronome_.render(out, wrapAt, channels);
+                if (click) metronome_.startAt(loop.a);
+                metronome_.render(out + wrapAt * channels, numFrames - wrapAt, channels);
+            } else {
+                if (wrapAt == 0 && click) metronome_.startAt(loop.a);
+                metronome_.render(out, numFrames, channels);
+            }
+        } else {
+            metronome_.setRate(1.0);
+            metronome_.render(out, numFrames, channels);
         }
-        metronome_.render(out, numFrames, channels);
         for (int i = 0; i < numFrames * channels; ++i) out[i] = std::clamp(out[i], -1.0f, 1.0f);
         return oboe::DataCallbackResult::Continue;
     }

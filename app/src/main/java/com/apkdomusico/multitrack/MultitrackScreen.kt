@@ -158,6 +158,7 @@ private fun Editor(vm: MultitrackViewModel, modifier: Modifier) {
     var trackDialog by remember { mutableStateOf<String?>(null) }
     var fadeDialog by remember { mutableStateOf(false) }
     var importDialog by remember { mutableStateOf(false) }
+    var speedDialog by remember { mutableStateOf(false) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.importAudio(uri)
@@ -296,6 +297,9 @@ private fun Editor(vm: MultitrackViewModel, modifier: Modifier) {
                         position = vm.position,
                         scrollPx = hScroll.value,
                         viewportPx = viewportPx,
+                        loopA = vm.loopA,
+                        loopB = vm.loopB,
+                        loopOn = vm.loopOn,
                         onSeek = { vm.seek(vm.snap(it)) },
                     )
                     project.tracks.forEach { t ->
@@ -315,6 +319,31 @@ private fun Editor(vm: MultitrackViewModel, modifier: Modifier) {
         // Ferramentas de edição
         val hasSel = selected != null
         Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant)) {
+            // Estudo: looper, A/B e velocidade.
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FilterChip(selected = vm.loopOn, onClick = vm::toggleLoop, label = { Text("⟳ Looper") })
+                OutlinedButton(onClick = vm::markA, contentPadding = SmallPadding) {
+                    Text(if (vm.loopA >= 0) "A ${formatBars(project, vm.loopA).removePrefix("Compasso ")}" else "Marcar A")
+                }
+                OutlinedButton(onClick = vm::markB, contentPadding = SmallPadding) {
+                    Text(if (vm.loopB >= 0) "B ${formatBars(project, vm.loopB).removePrefix("Compasso ")}" else "Marcar B")
+                }
+                if (vm.loopA >= 0 || vm.loopB >= 0) {
+                    TextButton(onClick = vm::clearLoop) { Text("Limpar A/B") }
+                }
+                FilterChip(
+                    selected = vm.speed != 1f,
+                    onClick = { speedDialog = true },
+                    label = { Text("Velocidade ${(vm.speed * 100).roundToInt()}%") },
+                )
+                if (vm.recording && (vm.loopOn || vm.speed != 1f)) {
+                    Text("Gravando: velocidade normal, sem loop", style = MaterialTheme.typography.bodySmall)
+                }
+            }
             Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -347,6 +376,7 @@ private fun Editor(vm: MultitrackViewModel, modifier: Modifier) {
             ?: run { trackDialog = null }
     }
     if (fadeDialog && selected != null) FadeDialog(vm, selected.second) { fadeDialog = false }
+    if (speedDialog) SpeedDialog(vm) { speedDialog = false }
     if (importDialog) {
         ImportDialog(
             vm = vm,
@@ -357,6 +387,41 @@ private fun Editor(vm: MultitrackViewModel, modifier: Modifier) {
             onDismiss = { importDialog = false },
         )
     }
+}
+
+@Composable
+private fun SpeedDialog(vm: MultitrackViewModel, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Velocidade: ${(vm.speed * 100).roundToInt()}%") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Muda o andamento sem mudar o tom, para estudar devagar. O clique acompanha. Na gravação toca sempre em 100%.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Slider(
+                    value = vm.speed,
+                    onValueChange = { vm.changeSpeed((it * 20f).roundToInt() / 20f) },
+                    valueRange = 0.25f..1.5f,
+                    steps = 24,
+                )
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    listOf(0.5f, 0.75f, 0.9f, 1f, 1.1f, 1.25f).forEach { s ->
+                        FilterChip(
+                            selected = vm.speed == s,
+                            onClick = { vm.changeSpeed(s) },
+                            label = { Text("${(s * 100).roundToInt()}%") },
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } },
+    )
 }
 
 private val SmallPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)

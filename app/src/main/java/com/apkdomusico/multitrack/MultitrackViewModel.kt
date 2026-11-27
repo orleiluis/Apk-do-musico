@@ -63,6 +63,18 @@ class MultitrackViewModel(app: Application) : AndroidViewModel(app) {
     var clickSubdivision by mutableStateOf(1)
     var snapOn by mutableStateOf(true)
     var pixelsPerSecond by mutableFloatStateOf(80f)
+
+    /** Looper: repete o trecho entre A e B (quadros; -1 = não marcado). */
+    var loopOn by mutableStateOf(false)
+        private set
+    var loopA by mutableLongStateOf(-1L)
+        private set
+    var loopB by mutableLongStateOf(-1L)
+        private set
+
+    /** Velocidade da reprodução sem mudar o tom (1 = normal). */
+    var speed by mutableFloatStateOf(1f)
+        private set
     var busy by mutableStateOf<String?>(null)
         private set
     var message by mutableStateOf<String?>(null)
@@ -113,6 +125,8 @@ class MultitrackViewModel(app: Application) : AndroidViewModel(app) {
         peaks.clear()
         sourceFrames.clear()
         syncEngine(p)
+        clearLoop()
+        changeSpeed(1f)
     }
 
     fun close() {
@@ -250,6 +264,56 @@ class MultitrackViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun snap(frame: Long): Long = project?.let { if (snapOn) Edits.snapToBeat(it, frame) else frame } ?: frame
+
+    // ---------- Looper, A/B e velocidade ----------
+
+    private fun barFrames(): Long = project?.let { (it.framesPerBeat() * it.beatsPerBar).toLong() } ?: SAMPLE_RATE.toLong()
+
+    private fun syncLoop() {
+        val valid = loopOn && loopA >= 0 && loopB > loopA
+        NativeAudio.transportSetLoop(valid, loopA.coerceAtLeast(0), loopB.coerceAtLeast(0))
+    }
+
+    /** Liga ou desliga o looper. Sem A/B marcados, repete 2 compassos a partir do compasso do cursor. */
+    fun toggleLoop() {
+        if (!loopOn && (loopA < 0 || loopB <= loopA)) {
+            val bar = barFrames()
+            loopA = (position / bar) * bar
+            loopB = loopA + 2 * bar
+        }
+        loopOn = !loopOn
+        syncLoop()
+    }
+
+    /** Marca A no cursor. */
+    fun markA() {
+        loopA = snap(position)
+        if (loopB in 0..loopA) loopB = loopA + barFrames()
+        if (loopB < 0) loopB = loopA + 2 * barFrames()
+        syncLoop()
+    }
+
+    /** Marca B no cursor e liga o looper. */
+    fun markB() {
+        var b = snap(position)
+        if (b <= 0) b = barFrames()
+        loopB = b
+        if (loopA < 0 || loopA >= loopB) loopA = (loopB - barFrames()).coerceAtLeast(0)
+        loopOn = true
+        syncLoop()
+    }
+
+    fun clearLoop() {
+        loopOn = false
+        loopA = -1
+        loopB = -1
+        syncLoop()
+    }
+
+    fun changeSpeed(value: Float) {
+        speed = (Math.round(value * 100f) / 100f).coerceIn(0.25f, 1.5f)
+        NativeAudio.transportSetSpeed(speed.toDouble())
+    }
 
     // ---------- Transporte ----------
 
