@@ -18,11 +18,53 @@ jobs:
           cmake --build build-tests
           ./build-tests/engine_tests
 
-  apk:
-    name: APK de teste
+  # Modelo de separação de faixas do Timbre Chord (htdemucs_6s convertido para ONNX e conferido
+  # contra o PyTorch). Fica no cache: só roda de novo quando tools/separation muda.
+  modelo:
+    name: Modelo de separação (Timbre Chord)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Cache do modelo convertido
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: sep-out
+          key: htdemucs6s-${{ hashFiles('tools/separation/**') }}
+      - uses: actions/setup-python@v5
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          python-version: '3.10'
+      - name: Instalar PyTorch, Demucs e ONNX
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          pip install -q torch==2.0.1 torchaudio==2.0.2 --index-url https://download.pytorch.org/whl/cpu
+          pip install -q -r tools/separation/requirements.txt
+      - name: Converter e conferir
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          set -o pipefail
+          python tools/separation/export.py sep-out 2>&1 | tee export.log
+          rm -rf sep-out/work
+      - name: Erro da conversão
+        if: failure()
+        run: tail -25 export.log | while IFS= read -r l; do echo "::error::$l"; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sep-model
+          path: sep-out/model
+          retention-days: 3
+
+  apk:
+    name: APK de teste
+    needs: modelo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: sep-model
+          path: timbrechord/src/main/assets/separation
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -34,3 +76,5 @@ jobs:
         with:
           name: apk-do-musico-debug
           path: app/build/outputs/apk/debug/*.apk
+      - name: Tamanho do APK
+        run: ls -l app/build/outputs/apk/debug/*.apk | awk '{printf "::notice::APK %.1f MB\n", $5/1048576}'

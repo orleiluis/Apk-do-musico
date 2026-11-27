@@ -10,9 +10,10 @@ Plano completo: https://claude.ai/artifact/RBmWRELPHEGC6U6QhXAwqc
 | --- | --- |
 | **Estúdio** | Projetos com até 8 pistas. Grava ouvindo as outras pistas e o clique, com compensação de latência. Importa MP3, M4A, FLAC, OGG e WAV. Move, corta, divide, duplica e apaga clipes; fades e ganho; volume, pan, mudo e solo; desfazer/refazer. Exporta a mixagem em WAV. |
 | **Tabs** | Abre Guitar Pro (.gp, .gp3, .gp4, .gp5, .gpx), MusicXML e Capella com [alphaTab](https://www.alphatab.net). Toca com cursor, repete trecho selecionado, velocidade de 25% a 150%, metrônomo, contagem, mudo/solo por instrumento. |
-| **Aulas** | Navegador para YouTube, Hotmart, Kiwify e qualquer site, com favoritos, vídeos com DRM e tela cheia. Modo estudo: vídeo em cima, metrônomo ou tablatura embaixo. Logins do Google abrem no navegador seguro do sistema. |
-| **Metrônomo** | 30 a 300 BPM, compassos 2/4 a 7/8, subdivisões, acento, tap tempo. Clique gerado no motor C++ com precisão de amostra. |
-| **Gravador** | Gravação rápida em WAV com medidor de nível, para ouvir, renomear, compartilhar ou levar para o Estúdio. |
+| **Aulas** | Navegador para YouTube, Hotmart, Kiwify e qualquer site, com favoritos, vídeos com DRM e tela cheia. Modo estudo: vídeo em cima, metrônomo ou tablatura embaixo. Logins do Google abrem no navegador seguro do sistema. Em WebView antigo (tablets Fire, por exemplo) o app completa funções que faltam aos sites novos; **Detalhes** mostra o que a página não conseguiu carregar. |
+| **Metrônomo** | 30 a 300 BPM, compassos 1/1 a 7/8, subdivisões, acento, tap tempo. Clique gerado no motor C++ com precisão de amostra. |
+| **Gravador** | Áudio: gravação rápida em WAV com medidor de nível, para ouvir, renomear, compartilhar ou levar para o Estúdio. Vídeo: grava com a câmera (frontal ou traseira) e o microfone, com metrônomo opcional; no Android 10+ os vídeos vão para a galeria em Filmes/Apk do Musico. |
+| **Timbre** | Abre o [Timbre Chord](https://github.com/orleiluis/timbre-chord): acordes ao vivo, grade de tempos, tom, BPM, cadeia de timbre e separação em 6 faixas. Precisa do Android 10 ou mais novo. |
 
 ## Como instalar no celular
 
@@ -30,6 +31,7 @@ Plano completo: https://claude.ai/artifact/RBmWRELPHEGC6U6QhXAwqc
 | `app/.../ui` | Metrônomo, gravador e navegação |
 | `core/audio/` | Motor de áudio em C++ com Oboe e a ponte Kotlin (`NativeAudio`) |
 | `core/audio/src/test/cpp/` | Testes do motor que rodam no computador |
+| `timbrechord/` | Timbre Chord (Java) como módulo; o modelo de separação é gerado no GitHub Actions a partir de `tools/separation` |
 
 ## Compilar no computador
 

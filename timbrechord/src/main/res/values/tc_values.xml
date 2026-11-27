@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tema do Timbre Chord dentro do Apk do Músico. Nomes com tc_ para não misturar com os do app. -->
+<resources>
+    <string name="tc_app_name">Timbre Chord</string>
+    <color name="tc_bg">#FF101418</color>
+    <color name="tc_panel">#FF1A2028</color>
+    <color name="tc_accent">#FFFFB300</color>
+    <style name="TcTheme" parent="android:Theme.Material.NoActionBar">
+        <item name="android:colorPrimary">@color/tc_panel</item>
+        <item name="android:colorPrimaryDark">@color/tc_bg</item>
+        <item name="android:colorAccent">@color/tc_accent</item>
+        <item name="android:windowBackground">@color/tc_bg</item>
+        <item name="android:statusBarColor">@color/tc_bg</item>
+        <item name="android:navigationBarColor">@color/tc_bg</item>
+    </style>
+</resources>
