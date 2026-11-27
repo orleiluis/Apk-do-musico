@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 rootProject.name = "ApkDoMusico"
 include(":app")
 include(":core:audio")
+include(":timbrechord")

@@ -12,8 +12,27 @@ android {
         applicationId = "com.apkdomusico"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
+        // Celulares e tablets: só ARM (o ONNX Runtime do Timbre Chord traz bibliotecas de emulador que só aumentariam o APK).
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+    }
+
+    // Assinatura fixa: com a mesma chave, cada APK novo instala por cima do anterior sem perder projetos e gravações.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("apkdomusico.keystore")
+            storePassword = "android"
+            keyAlias = "apkdomusico"
+            keyPassword = "android"
+        }
+    }
+
+    // O modelo de separação do Timbre Chord vai sem compressão: é copiado para o aparelho na primeira vez.
+    androidResources {
+        noCompress += listOf("onnx", "half")
     }
 
     buildTypes {
@@ -38,6 +57,7 @@ kotlin {
 
 dependencies {
     implementation(project(":core:audio"))
+    implementation(project(":timbrechord"))
 
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)
@@ -53,6 +73,13 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.webkit:webkit:1.12.1")
     implementation("androidx.browser:browser:1.8.0")
+
+    // Gravação de vídeo com a câmera (aba Gravador)
+    val camerax = "1.4.1"
+    implementation("androidx.camera:camera-camera2:$camerax")
+    implementation("androidx.camera:camera-lifecycle:$camerax")
+    implementation("androidx.camera:camera-video:$camerax")
+    implementation("androidx.camera:camera-view:$camerax")
 
     testImplementation("junit:junit:4.13.2")
 }

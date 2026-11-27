@@ -17,6 +17,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import android.app.Activity
+import android.content.Intent
+import android.os.Build
+import android.widget.Toast
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
@@ -90,6 +93,13 @@ fun AppRoot() {
                             label = { Text(label, maxLines = 1) },
                         )
                     }
+                    // Timbre Chord: abre por cima do app; voltar retorna para a aba em que você estava.
+                    NavigationBarItem(
+                        selected = false,
+                        onClick = { openTimbreChord(activity, browser) },
+                        icon = { Text("◆") },
+                        label = { Text("Timbre", maxLines = 1) },
+                    )
                 }
             },
         ) { padding ->
@@ -99,10 +109,20 @@ fun AppRoot() {
                 1 -> TabsScreen(tabs, modifier)
                 2 -> BrowserScreen(browser, metronome, tabs, modifier)
                 3 -> MetronomeScreen(metronome, modifier)
-                else -> RecorderScreen(recorder, metronome, modifier)
+                else -> RecorderTab(recorder, metronome, modifier)
             }
         }
         BrowserHost(browser, onAulasTab = tab == AULAS, onExpand = { tab = AULAS })
         }
     }
+}
+
+private fun openTimbreChord(activity: Activity, browser: BrowserState) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+        Toast.makeText(activity, "O Timbre Chord precisa do Android 10 ou mais novo.", Toast.LENGTH_LONG).show()
+        return
+    }
+    // A aula continua tocando enquanto o Timbre Chord está aberto (para ver os acordes dela).
+    browser.keepPlaying = true
+    activity.startActivity(Intent(activity, com.orleiluis.timbrechord.MainActivity::class.java))
 }

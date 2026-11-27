@@ -9,17 +9,26 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.view.View
 import android.view.ViewGroup
+import android.net.http.SslError
+import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
+import android.webkit.SslErrorHandler
+import android.webkit.WebResourceError
+import android.webkit.WebResourceResponse
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.browser.customtabs.CustomTabsClient
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -73,6 +82,34 @@ class BrowserState(private val activity: Activity) {
         private set
     private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
 
+    /** O que deu errado na página atual (erros de script e arquivos que não carregaram), para a tela Detalhes. */
+    val problems = mutableStateListOf<String>()
+
+    /** Versão do WebView do aparelho: WebView antigo é a causa mais comum de página em branco. */
+    val webViewVersion: String by lazy {
+        val pkg = try { WebViewCompat.getCurrentWebViewPackage(activity) } catch (e: Exception) { null }
+        if (pkg == null) "desconhecida" else "${pkg.packageName} ${pkg.versionName}"
+    }
+
+    private val compatScript: String by lazy {
+        try { activity.assets.open("browser/compat.js").bufferedReader().use { it.readText() } } catch (e: Exception) { "" }
+    }
+    private var compatAtStart = false
+
+    private fun note(text: String) {
+        activity.runOnUiThread {
+            if (problems.lastOrNull() == text) return@runOnUiThread
+            problems.add(text)
+            while (problems.size > 40) problems.removeAt(0)
+        }
+    }
+
+    private fun shortUrl(u: Uri?): String {
+        if (u == null) return ""
+        val path = (u.path ?: "").let { if (it.length > 50) "…" + it.takeLast(50) else it }
+        return (u.host ?: "") + path
+    }
+
     @get:SuppressLint("SetJavaScriptEnabled")
     val webView: WebView by lazy {
         WebView(activity).apply {
@@ -84,6 +121,7 @@ class BrowserState(private val activity: Activity) {
             settings.builtInZoomControls = true
             settings.displayZoomControls = false
             configure(this)
+            compatAtStart = installCompat(this)
 
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -113,7 +151,27 @@ class BrowserState(private val activity: Activity) {
 
                 override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                     blankSuspected = false
+                    problems.clear()
+                    if (!compatAtStart && compatScript.isNotEmpty()) view.evaluateJavascript(compatScript, null)
                     updateNav(url)
+                }
+
+                override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                    val kind = if (request.isForMainFrame) "Página" else "Arquivo"
+                    note("$kind não carregou: ${shortUrl(request.url)} (${error.description})")
+                }
+
+                override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
+                    if (request.isForMainFrame || response.statusCode >= 500 || response.statusCode == 403) {
+                        note("Erro ${response.statusCode}: ${shortUrl(request.url)}")
+                    }
+                }
+
+                // Certificado inválido: continua bloqueado (é o que protege a senha), mas fica registrado.
+                // Em aparelhos antigos isso acontece quando falta um certificado raiz atualizado.
+                override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
+                    note("Certificado recusado (${error.primaryError}): ${error.url.take(80)}")
+                    handler.cancel()
                 }
 
                 override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
@@ -136,6 +194,14 @@ class BrowserState(private val activity: Activity) {
             webChromeClient = object : WebChromeClient() {
                 override fun onProgressChanged(view: WebView, newProgress: Int) {
                     this@BrowserState.progress = newProgress
+                }
+
+                override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                    if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+                        val src = message.sourceId()?.substringAfterLast('/')?.take(40) ?: ""
+                        note("Script: ${message.message().take(160)} ($src:${message.lineNumber()})")
+                    }
+                    return false
                 }
 
                 override fun onReceivedTitle(view: WebView, t: String?) {
@@ -163,6 +229,7 @@ class BrowserState(private val activity: Activity) {
                 override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message): Boolean {
                     val child = WebView(activity)
                     configure(child)
+                    installCompat(child)
                     child.webViewClient = object : WebViewClient() {
                         override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
                             val scheme = request.url.scheme?.lowercase()
@@ -222,11 +289,33 @@ class BrowserState(private val activity: Activity) {
         view.postDelayed({
             if (view.url != finishedUrl) return@postDelayed
             view.evaluateJavascript(
+                // Só "Loading..." ou nada escrito, sem vídeo, imagem ou campo visível: a página travou.
                 "(function(){var b=document.body;if(!b)return false;" +
-                    "if(b.innerText&&b.innerText.trim().length>0)return true;" +
-                    "return !!document.querySelector('video,iframe,img,canvas,svg,input');})()",
+                    "var t=(b.innerText||'').trim();if(t.length>=20)return true;" +
+                    "var els=document.querySelectorAll('video,iframe,img,canvas,input,svg');" +
+                    "for(var i=0;i<els.length;i++){var r=els[i].getBoundingClientRect();if(r.width>40&&r.height>40)return true;}" +
+                    "return false;})()",
             ) { result -> blankSuspected = result == "false" }
-        }, 5000)
+        }, 8000)
+    }
+
+    /** Coloca os complementos para WebView antigo antes de qualquer script da página. */
+    private fun installCompat(view: WebView): Boolean {
+        if (compatScript.isEmpty() || !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return false
+        return try {
+            WebViewCompat.addDocumentStartJavaScript(view, compatScript, setOf("*"))
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Texto para copiar e mandar quando uma página não abre. */
+    fun diagnosticText(): String = buildString {
+        appendLine("Página: $url")
+        appendLine("WebView: $webViewVersion")
+        appendLine("Android: ${android.os.Build.VERSION.RELEASE} (${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL})")
+        if (problems.isEmpty()) appendLine("Nenhum erro registrado.") else problems.forEach { appendLine("• $it") }
     }
 
     /** Diz se algum vídeo ou áudio da página está tocando. */
@@ -284,7 +373,10 @@ class BrowserState(private val activity: Activity) {
     fun openSecure(target: String = url) {
         if (target.isBlank()) return
         try {
-            CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(activity, Uri.parse(target))
+            val tab = CustomTabsIntent.Builder().setShowTitle(true).build()
+            // O Chrome, quando existe, costuma estar mais atualizado que o navegador padrão de tablets.
+            CustomTabsClient.getPackageName(activity, listOf("com.android.chrome"), true)?.let { tab.intent.setPackage(it) }
+            tab.launchUrl(activity, Uri.parse(target))
         } catch (e: ActivityNotFoundException) {
             activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target)))
         }
@@ -321,11 +413,15 @@ class BrowserState(private val activity: Activity) {
         prefs.edit().putString("favoritos", arr.toString()).apply()
     }
 
+    /** Quando o app abre o Timbre Chord, a aula não pausa. */
+    var keepPlaying = false
+
     fun onPause() {
-        webView.onPause()
+        if (!keepPlaying) webView.onPause()
     }
 
     fun onResume() {
+        keepPlaying = false
         webView.onResume()
     }
 }

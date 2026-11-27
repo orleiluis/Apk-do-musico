@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 data class TimeSignature(val label: String, val beats: Int)
 
 val TimeSignatures = listOf(
+    TimeSignature("1/1", 1),
     TimeSignature("2/4", 2),
     TimeSignature("3/4", 3),
     TimeSignature("4/4", 4),

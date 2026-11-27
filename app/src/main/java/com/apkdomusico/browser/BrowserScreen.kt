@@ -7,6 +7,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -70,6 +71,7 @@ fun BrowserScreen(
     var studyPanel by rememberSaveable { mutableStateOf(0) } // 0 metrônomo, 1 tablatura
     var studyTab by remember { mutableStateOf<File?>(null) }
     var editing by remember { mutableStateOf(false) }
+    var details by remember { mutableStateOf(false) }
     var address by remember { mutableStateOf(state.url) }
     val focus = LocalFocusManager.current
 
@@ -113,6 +115,7 @@ fun BrowserScreen(
             }
             FilterChip(selected = study, onClick = { study = !study }, label = { Text("Modo estudo") })
             TextButton(onClick = { state.openSecure() }) { Text("Abrir no navegador seguro") }
+            TextButton(onClick = { details = true }) { Text(if (state.problems.isEmpty()) "Detalhes" else "Detalhes (${state.problems.size})") }
         }
         if (state.progress in 1..99) {
             LinearProgressIndicator(progress = { state.progress / 100f }, modifier = Modifier.fillMaxWidth().height(3.dp))
@@ -138,9 +141,12 @@ fun BrowserScreen(
                     color = MaterialTheme.colorScheme.onErrorContainer,
                 )
                 TextButton(onClick = state::reload) { Text("Recarregar") }
-                TextButton(onClick = { state.openSecure() }) { Text("Abrir no navegador seguro") }
+                TextButton(onClick = { details = true }) { Text("Detalhes") }
+                TextButton(onClick = { state.openSecure() }) { Text("Abrir fora") }
             }
         }
+
+        if (details) PageDetailsDialog(state) { details = false }
 
         // Espaço da página: o WebView é desenhado por cima, pelo BrowserHost, para não ser recriado ao trocar de aba.
         Box(
@@ -238,4 +244,31 @@ private fun TabPicker(tabs: TabsViewModel, onPick: (File) -> Unit) {
             )
         }
     }
+}
+
+@Composable
+private fun PageDetailsDialog(state: BrowserState, onDismiss: () -> Unit) {
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Detalhes da página") },
+        text = {
+            Column(
+                Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    "Se a página ficar em branco, toque em Copiar e mande este texto: ele mostra o que o site tentou carregar e não conseguiu.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(state.diagnosticText(), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { clipboard.setText(androidx.compose.ui.text.AnnotatedString(state.diagnosticText())) }) { Text("Copiar") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Fechar") } },
+    )
 }

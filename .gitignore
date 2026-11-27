@@ -12,3 +12,7 @@ captures/
 *.aab
 *.keystore
 *.jks
+!app/apkdomusico.keystore
+
+# Modelo de separação do Timbre Chord: gerado pelo GitHub Actions (tools/separation)
+timbrechord/src/main/assets/separation/
