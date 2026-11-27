@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Publicar o APK em Releases (link direto para baixar no celular).
+permissions:
+  contents: write
+
 jobs:
   motor:
     name: Testes do motor de áudio (C++)
@@ -78,3 +82,18 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
       - name: Tamanho do APK
         run: ls -l app/build/outputs/apk/debug/*.apk | awk '{printf "::notice::APK %.1f MB\n", $5/1048576}'
+      # Na main: publica o APK numa Release. O link
+      # https://github.com/orleiluis/Apk-do-musico/releases/latest/download/ApkDoMusico.apk
+      # sempre baixa a versão mais nova, direto no celular e sem login.
+      - name: Preparar APK para Releases
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: cp app/build/outputs/apk/debug/*.apk ApkDoMusico.apk
+      - name: Publicar APK em Releases
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.${{ github.run_number }}
+          name: Apk do Músico v0.${{ github.run_number }}
+          body: APK de teste gerado da main (${{ github.sha }}).
+          files: ApkDoMusico.apk
+          make_latest: true

@@ -17,9 +17,11 @@ Plano completo: https://claude.ai/artifact/RBmWRELPHEGC6U6QhXAwqc
 
 ## Como instalar no celular
 
-1. Abra a aba **Actions** do repositório no GitHub e escolha a execução mais recente de "Build do APK".
-2. Baixe o artefato `apk-do-musico-debug` (vem em .zip) e extraia o `.apk`.
-3. No celular, abra o arquivo e permita "instalar apps desconhecidos" quando o Android pedir.
+Baixe direto no celular: **[ApkDoMusico.apk](https://github.com/orleiluis/Apk-do-musico/releases/latest/download/ApkDoMusico.apk)** (sempre a versão mais nova da main).
+
+1. Toque no link acima no celular (ou abra **Releases** no GitHub e baixe `ApkDoMusico.apk`).
+2. Abra o arquivo e permita "instalar apps desconhecidos" quando o Android pedir.
+3. As versões novas instalam por cima, sem apagar projetos e gravações.
 
 ## Estrutura
 
